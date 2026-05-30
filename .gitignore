@@ -1,0 +1,11 @@
+
+cache/
+out/
+lcov.info
+log/
+tmp/
+.env
+*.log
+.DS_Store
+broadcast/
+deployments/

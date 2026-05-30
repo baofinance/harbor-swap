@@ -1,0 +1,42 @@
+[profile.default]
+src = "src"
+out = "out"
+libs = ["lib"]
+auto_detect_remappings = false
+optimizer = true
+optimizer_runs = 700
+deny = "warnings"
+
+remappings = [
+  "ds-test/=lib/forge-std/lib/ds-test/src/",
+  "forge-std/=lib/forge-std/src/",
+  "lib/harbor/:src/=lib/harbor/src/",
+  "lib/harbor/:script/=lib/harbor/script/",
+  "lib/harbor/:test/=lib/harbor/test/",
+  "@openzeppelin/contracts/=lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/contracts/",
+  "@openzeppelin/contracts-upgradeable/=lib/openzeppelin-contracts-upgradeable/contracts/",
+  "@solady/=lib/solady/src/",
+  "@uniswap/v3-periphery/=lib/v3-periphery/",
+  "@uniswap/v3-core/=lib/v3-core/",
+  "@harbor-swap/=src/swap/",
+  "@harbor-swap-test/=test/swap/",
+  "@harbor-swap-test-mocks/=test/mocks/",
+  "@harbor-swap-script/=script/src/",
+  "@harbor/=lib/harbor/src/",
+  "@harbor-script/=lib/harbor/script/",
+  "@harbor-test/=lib/harbor/test/",
+  "@bao/=lib/harbor/lib/bao-base/src/",
+  "@bao-test/=lib/harbor/lib/bao-base/test/",
+  "@bao-script/=lib/harbor/lib/bao-base/script/",
+  "@bao-factory/=lib/harbor/lib/bao-base/lib/bao-factory/src/",
+  "@bao-factory-test/=lib/harbor/lib/bao-base/lib/bao-factory/test/",
+]
+
+fs_permissions = [{ access = "read", path = "./" }]
+
+[lint]
+exclude_lints = ["mixed-case-function"]
+lint_on_build = false
+
+[rpc_endpoints]
+mainnet = "${MAINNET_RPC_URL}"
