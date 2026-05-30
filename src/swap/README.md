@@ -2,11 +2,9 @@
 
 Self-contained swap layer used by `HarborYield_v1` and (in future) other Harbor products.
 
-This subtree is a **split-ready package**: it has no imports from `HarborYield_v1` or any
-other yield-side contract. When a second consumer appears (minter, another yield variant,
-fee router) or audit/compliance requires a separately-versioned artifact, this directory is
-extracted to a standalone `harbor-swapadapter` repo via
-`git filter-repo --subdirectory-filter src/swap`. Until then it lives here.
+This subtree is a **standalone package** in [baofinance/harbor-swap](https://github.com/baofinance/harbor-swap):
+it has no imports from `HarborYield_v1` or any other yield-side contract. Harbor Yield and
+other products consume it via submodule/dependency and the `@harbor-swap/` remap.
 
 Imports inside the subtree use the `@harbor-swap/` remap defined in
 [`foundry.toml`](../../foundry.toml); consumers (e.g. `HarborYield_v1`, deploy scripts,
@@ -210,11 +208,11 @@ Deploy helpers:
 - `deployFxSaveWstEthSwapper(state)` — deploys `FxSaveWstEthSwapper_v1` with the mainnet
   fxSAVE → wstETH route compiled into the implementation
   ([`ConfigFxSaveWstEthRoute_ETH_mainnet`](config/ConfigFxSaveWstEthRoute_ETH_mainnet.sol)).
-  Used by [`Deploy_ETH_HarborYield`](../../script/src/Deploy_ETH_HarborYield.sol) for hyETH.
+  Used by the Harbor Yield consumer repo for hyETH (imports `@harbor-swap/` from
+  [baofinance/harbor-swap](https://github.com/baofinance/harbor-swap)).
 
-Each peg-specific deployer (e.g.
-[`Deploy_ETH_HarborYield`](../../script/src/Deploy_ETH_HarborYield.sol)) overrides
-`HarborYieldDeployer._configureSwapRoutes` to do two layers of wiring per pair:
+Each peg-specific Harbor Yield deployer overrides `_configureSwapRoutes` to do two layers of
+wiring per pair:
 
 1. Configure the executor itself (each DEX has its own native setter):
    - `UniV3Swapper_v1.setPath(from, to, encodedPath)`
@@ -232,21 +230,18 @@ keeper allowed to trigger `executeAggregatorSwap`.
 **Deploy runbook:** step-by-step wiring, mainnet pool caveats, role grants, and verification
 checklist live in [`script/DEPLOY_SWAP.md`](../../script/DEPLOY_SWAP.md).
 
-## When this becomes its own repo
+## Repo layout
 
-Trigger criteria (see plan document):
+This package lives in [baofinance/harbor-swap](https://github.com/baofinance/harbor-swap).
+Harbor Yield and other consumers import it via submodule or dependency and use the
+`@harbor-swap/` remapping defined in [`foundry.toml`](../../foundry.toml).
 
-1. A second Harbor product imports `@harbor-swap/...`.
-2. Audit / compliance requires a separately-versioned, separately-deployed artifact.
-3. Subtree size starts dominating this repo's review scope.
+**Test scope:** mock-based unit tests under `test/swap/` (63 tests). Mainnet fork
+integration (full ETH stack + oracle mocks) lives in the Harbor Yield consumer repo, not here.
 
-Extract recipe at that point:
+**Intentional design tradeoffs** (see threat model above):
 
-```bash
-git clone harbor-yield-1 harbor-swapadapter
-cd harbor-swapadapter
-git filter-repo --subdirectory-filter src/swap
-# add foundry.toml, lib/ (forge-std, OZ, solady, harbor for @bao/HarborOwnableRoles),
-# README, slither config; publish; back in harbor-yield-1 add as
-# lib/harbor-swapadapter submodule and repoint the @harbor-swap/ remap.
-```
+- `FxSaveWstEthSwapper_v1` intermediate Curve legs use `min_dy = 0`; only final wstETH
+  output is bounded by the consumer's `minAmountOut`.
+- `OneInchSwapper_v1` is open-access; authorization lives on the consumer's
+  `executeAggregatorSwap` role gate.

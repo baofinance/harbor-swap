@@ -17,6 +17,16 @@ forge build
 forge test --match-path "test/swap/**"
 ```
 
+**Test scope:** mock-based unit tests only (63 tests under `test/swap/`). Mainnet fork
+integration (full ETH stack + oracle mocks) lives in the Harbor Yield consumer repo.
+
+**Known design tradeoffs** (documented in `src/swap/README.md`):
+
+- `FxSaveWstEthSwapper_v1` intermediate Curve legs use `min_dy = 0`; only final wstETH
+  output is bounded by the consumer's `minAmountOut`.
+- `OneInchSwapper_v1` is open-access; authorization lives on the consumer's
+  `executeAggregatorSwap` role gate.
+
 ## License
 
 MIT — see [LICENSE](LICENSE).

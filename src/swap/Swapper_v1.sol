@@ -16,7 +16,7 @@ import {ISwapperConfig} from "@harbor-swap/interfaces/ISwapperConfig.sol";
 /// @dev Security properties:
 ///      - Swapper holds no funds and executes no swaps.
 ///      - swapExecutor addresses are owner-gated via setRoute.
-///      See doc/design.md §6.20.
+///      See [`src/swap/README.md`](README.md) threat model.
 // slither-disable-next-line missing-inheritance — false positive: initialize(address,address) ABI matches IHarborYieldEntryInit by coincidence; the two addresses are (deployerOwner, pendingOwner), not entry init args
 contract Swapper_v1 is// solhint-disable-line contract-name-capwords
  ISwapper, ISwapperConfig, HarborOwnableRoles, Initializable, UUPSUpgradeable {

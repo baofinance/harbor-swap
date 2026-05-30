@@ -1,41 +1,55 @@
 # Swap deploy and route-configuration runbook
 
-Operational guide for deploying the Harbor swap stack and wiring routes on mainnet (or
-fork tests). For architecture, threat model, and interface contracts see
-[`src/swap/README.md`](../src/swap/README.md). For HY accounting context see
-[`doc/design.md`](../doc/design.md) §6.20 and §9 (deployment phases).
+Operational guide for deploying the Harbor swap stack from **this repo**
+([baofinance/harbor-swap](https://github.com/baofinance/harbor-swap)). For architecture,
+threat model, and interface contracts see [`src/swap/README.md`](../src/swap/README.md).
 
 **Production rule:** all swap **proxies** deploy through [**BaoFactory**](https://github.com/baofinance/harbor)
-CREATE3 via the harbor-yield deploy scripts — never hand-roll `new Swapper_v1` + ERC1967Proxy
-for mainnet. Implementation contracts are deployed with `new` in-script; UUPS proxies are
-always factory-deployed at deterministic salts.
+CREATE3 via the deploy helpers in [`script/src/contracts/Swapper.sol`](src/contracts/Swapper.sol) —
+never hand-roll `new Swapper_v1` + ERC1967Proxy for mainnet. Implementation contracts are
+deployed with `new` in-script; UUPS proxies are always factory-deployed at deterministic salts.
+
+---
+
+## Repo scope
+
+| Repo | Delivers |
+|------|----------|
+| **harbor-swap** (this repo) | `Swapper_v1`, direct executors, `OneInchSwapper_v1`, deploy scripts, mock-based unit tests |
+| [baofinance/harbor](https://github.com/baofinance/harbor) | Phase 1a — Minter, SP, SPM; `HarborDeployer`, BaoFactory (`@harbor-script/`) |
+| [baofinance/harbor-price-aggregators](https://github.com/baofinance/harbor-price-aggregators) | Phase 1b — oracles at CREATE3 addresses |
+| **Harbor Yield consumer repo** (separate) | `HarborYield_v1`, ACs, equiv vaults; imports `@harbor-swap/`; fork integration tests |
+
+Harbor Yield wiring (`_configureSwapRoutes`, `setAggregatorSwapper`, `executeAggregatorSwap`)
+lives in the consumer repo. This runbook covers swap-stack deploy and route configuration;
+§5 describes how the consumer connects the aggregator adapter.
 
 ---
 
 ## 0. Prerequisites — BaoFactory CREATE3 and cross-repo deploy
 
-Swap deployment is **Phase 2** of the Harbor stack. It assumes Phase 1 is already live.
+Swap deployment is **Phase 2a** of the Harbor stack. It assumes Phase 1 is already live.
 
 ### Cross-repo ordering
 
 | Phase | Repo | Delivers (swap-relevant) |
 |-------|------|--------------------------|
 | **1a** | [baofinance/harbor](https://github.com/baofinance/harbor) | `Minter_v3`, `StabilityPool_v3`, `StabilityPoolManager_v2` — AC compound + `distribute()` source |
-| **1b** | [baofinance/harbor-price-aggregators](https://github.com/baofinance/harbor-price-aggregators) | `IWrappedPriceOracle` impls at CREATE3 addresses (e.g. `EthPriceAggregator_ETH_mainnet`, `Aggregator_stETH_ETH_mainnet` for wstETH equiv vault) |
-| **2** | harbor-yield (this repo) | `Swapper_v1`, executors, aggregator adapter, `HarborYield_v1`, ACs, equiv adapters |
+| **1b** | [baofinance/harbor-price-aggregators](https://github.com/baofinance/harbor-price-aggregators) | `IWrappedPriceOracle` impls at CREATE3 addresses (e.g. `Aggregator_stETH_ETH_mainnet` for wstETH equiv vault) |
+| **2a** | **harbor-swap** (this repo) | `Swapper_v1`, executors, aggregator adapter |
+| **2b** | Harbor Yield consumer repo | `HarborYield_v1`, ACs, equiv adapters; registry wiring + aggregator role grants |
 
 Phase 1a and 1b are independent of each other; **both must complete before Phase 2**.
 
 Oracle addresses from harbor-price-aggregators are predictable from the same salt scheme
 BaoFactory uses. Example (ETH peg): wstETH equivalent vault reads
-`Aggregator_stETH_ETH_mainnet` deployed by harbor-price-aggregators — see
-[`Deploy_ETH_HarborYield._deployWstETHOracle`](src/Deploy_ETH_HarborYield.sol). Fork tests
-mock oracles at `_predictAddress(...)` when the price-aggregators repo has not been run
-(see [`DeployETHSetUp.t.sol`](../test/deployment/DeployETHSetUp.t.sol)).
+`Aggregator_stETH_ETH_mainnet` deployed by harbor-price-aggregators — see that repo's deploy
+scripts. Fork integration tests that mock oracles at `_predictAddress(...)` live in the
+Harbor Yield consumer repo, not in harbor-swap.
 
 ### How BaoFactory deployment works
 
-All harbor-yield deploy scripts inherit [`HarborDeployer`](https://github.com/baofinance/harbor)
+All harbor-swap deploy scripts inherit [`HarborDeployer`](https://github.com/baofinance/harbor/blob/harbor-yield/script/src/HarborDeployer.sol)
 (from `lib/harbor/script/` via `@harbor-script/`). Swap proxies use:
 
 ```solidity
@@ -47,16 +61,6 @@ proxy = _deployProxyAndRecord(stateData, "uniV3Swapper", impl, initData);
 `IBaoFactory(baoFactory()).deploy(...)` with a CREATE3 salt derived from
 `_saltString(key)`. The resulting address is **deterministic** from `{saltPrefix}::{key}`.
 
-Special case — entry beacon (not a UUPS proxy):
-
-```solidity
-// script/src/contracts/HarborYield.sol
-IBaoFactory(baoFactory()).deploy(
-    abi.encodePacked(type(HarborYieldEntryBeacon_v1).creationCode, abi.encode(entryImpl, owner())),
-    keccak256(abi.encodePacked(_saltString(beaconKey)))
-);
-```
-
 **Address prediction before deploy:**
 
 ```solidity
@@ -65,8 +69,8 @@ address swapper = _predictAddress("swapper");       // valid before deploySwappe
 address uniV3   = _predictAddress("uniV3Swapper");
 ```
 
-This is how [`HarborYield_v1`](../../src/HarborYield_v1.sol) receives `SWAPPER` as an
-immutable at construction time and how AC impls bake in `YIELD_MANAGER = _predictAddress(hyKey)`.
+The Harbor Yield consumer passes `swapper = _predictAddress("swapper")` as an immutable
+when deploying `HarborYield_v1`.
 
 ### Operator and ownership
 
@@ -80,9 +84,9 @@ immutable at construction time and how AC impls bake in `YIELD_MANAGER = _predic
 2. Proxies initialize with `(deployerOwner, pendingOwner)` — deploy script is temporary
    owner, then `_transferAllOwnerships()` hands control to the Safe.
 
-3. Route wiring (`setRoute`, `setPath`, `setAggregatorSwapper`) runs **while the deploy
-   script still owns** the contracts, inside `_configureSwapRoutes` or immediately after
-   deploy, before ownership transfer.
+3. Route wiring (`setRoute`, `setPath`) runs **while the deploy script still owns** the
+   contracts, inside the consumer's `_configureSwapRoutes` hook or immediately after deploy,
+   before ownership transfer.
 
 ### Salt keys (swap stack)
 
@@ -98,12 +102,12 @@ HY peg instances on the same network):
 | `oneInchSwapper` | `OneInchSwapper_v1` |
 | `fxSaveWstEthSwapper` | `FxSaveWstEthSwapper_v1` (ETH mainnet fxSAVE → wstETH composite) |
 
-Per-peg HY uses `{pegKey}::harborYield`, `{pegKey}::beacon`, etc. — see
-[`HarborYieldDeployer`](src/HarborYieldDeployer.sol).
+Per-peg HY uses `{pegKey}::harborYield`, `{pegKey}::beacon`, etc. — configured in the
+Harbor Yield consumer repo.
 
 ### What not to do on mainnet
 
-- Do **not** deploy swap proxies outside `Swapper.sol` / `HarborYieldDeployer` helpers.
+- Do **not** deploy swap proxies outside [`Swapper.sol`](src/contracts/Swapper.sol) helpers.
 - Do **not** hard-code proxy addresses in source — use `_predictAddress` + config mixins.
 - Do **not** wire registry routes to an EOA or unverified contract — only CREATE3 executor
   proxies registered via `ISwapperConfig.setRoute`.
@@ -113,9 +117,13 @@ Per-peg HY uses `{pegKey}::harborYield`, `{pegKey}::beacon`, etc. — see
 ### Tests mirror production
 
 [`BaoTest._ensureBaoFactory()`](../lib/harbor/lib/bao-base/test/) bootstraps Nick's Factory →
-BaoFactory proxy → v1 upgrade. Swap unit tests (`test/swap/...`) and fork setup
-(`DeployETHSetUp`) call the same `deploySwapper` / `deployUniV3Swapper` paths as production.
-Override `deploySwapperImplementation()` to inject `MockSwapper` without bypassing CREATE3.
+BaoFactory proxy → v1 upgrade. Swap unit tests under `test/swap/` call the same
+`deploySwapper` / `deployUniV3Swapper` paths as production via CREATE3. Override
+`deploySwapperImplementation()` to inject `MockSwapper` without bypassing the factory.
+
+**Test scope in this repo:** mock-based unit tests only (`forge test --match-path "test/swap/**"`).
+Mainnet fork integration (full ETH stack + mocked oracles) lives in the Harbor Yield consumer
+repo.
 
 ---
 
@@ -152,7 +160,7 @@ Chain constants:
 
 | Constant | Address | File |
 |----------|---------|------|
-| Uniswap v3 SwapRouter (mainnet) | `0xE592427A0AEce92De3Edee1F18E0157C05861564` | e.g. [`ConfigHarborYield_ETH_wstETH.sol`](src/config/ConfigHarborYield_ETH_wstETH.sol) |
+| Uniswap v3 SwapRouter (mainnet) | `0xE592427A0AEce92De3Edee1F18E0157C05861564` | [`ConfigSwap_ETH_mainnet.sol`](src/config/ConfigSwap_ETH_mainnet.sol) |
 | Balancer V2 Vault (all major chains) | `0xBA12222222228d8Ba445958a75a0704d566BF2C8` | [`ConfigBalancer.sol`](src/config/ConfigBalancer.sol) |
 | 1inch AggregationRouterV6 (CREATE2, all major chains) | `0x111111125421cA6dc452d289314280a0f8842A65` | [`ConfigOneInch.sol`](src/config/ConfigOneInch.sol) |
 
@@ -160,59 +168,45 @@ Curve has **no canonical router** — each pair points at a specific pool contra
 
 ---
 
-## 3. Deploy order (Phase 2 — via BaoFactory)
+## 3. Deploy order (Phase 2a — via BaoFactory)
 
 Swap deployment is orchestrated by [`DeploySwapStack`](src/DeploySwapStack.sol) (`deploySwapStack`).
-Two entrypoints:
 
 | Script | When | What it deploys |
 |--------|------|-----------------|
-| [`Deploy_Swap.s.sol`](../Deploy_Swap.s.sol) | Swap stack only, shared infra before any HY peg | Registry + UniV3 + Curve + Balancer + 1inch |
-| [`Deploy_ETH_HarborYield.s.sol`](../Deploy_ETH_HarborYield.s.sol) `run` | Default ETH HY deploy | Registry + UniV3, then HY stack |
-| [`Deploy_ETH_HarborYield.s.sol`](../Deploy_ETH_HarborYield.s.sol) `runFull` | ETH HY with full swap + aggregator wiring | Registry + all executors + 1inch + HY + `setAggregatorSwapper` |
+| [`Deploy_Swap.s.sol`](../Deploy_Swap.s.sol) | Swap stack only, shared infra before any HY peg | Registry + UniV3 + Curve + Balancer + 1inch + fxSAVE→wstETH |
 
-**Standalone swap stack** (no HarborYield):
+**Standalone swap stack** (this repo):
 
 ```bash
 script/run-script Deploy_Swap --salt harbor_v1 --network mainnet
 ```
 
-**ETH HarborYield with full swap stack**:
-
-```bash
-script/run-script Deploy_ETH_HarborYield runFull --salt harbor_v1 --network mainnet
-```
-
-Within harbor-yield, peg deploy is invoked from
-[`Deploy_ETH_HarborYield.deployETHHarborYield`](src/Deploy_ETH_HarborYield.sol). That
-function builds a `DeploymentTypes.State` with `baoFactory: baoFactory()` and runs:
+[`Deploy_Swap.s.sol`](../Deploy_Swap.s.sol) calls [`Deploy_Swap.deploySwapInfrastructure`](src/Deploy_Swap.sol),
+which runs:
 
 ```
-Prerequisites (Phase 1a + 1b — other repos, must be done first)
-  harbor:          Minter_v3, SP_v3, SPM_v2 live
-  price-aggregators: oracles at predicted CREATE3 addresses (e.g. Aggregator_stETH_ETH_mainnet)
-
-Phase 2 — harbor-yield deploy script (BaoFactory operator)
+Phase 2a — harbor-swap deploy script (BaoFactory operator)
   1. _setSaltPrefix(saltPrefix)
-  2. deploySwapStack(state, opts)       → swapper + uniV3 [+ curve + balancer + oneInch]
-  3. deployHarborYieldForPeg(...)      → ACs, equiv vaults, HY proxy (also all CREATE3)
-  4. _configureSwapRoutes(peg, markets) → two-layer route wiring (see §4)
-  5. [when deployOneInch] setAggregatorSwapper on HY (+ optional AGGREGATOR_ROLE)
-  6. flush + _transferAllOwnerships()  → Safe receives proxy ownership
+  2. deploySwapStack(state, fullOpts)  → swapper + uniV3 + curve + balancer + oneInch
+  3. deployFxSaveWstEthSwapper(state)  → fxSAVE → wstETH composite executor
+  4. flush + _transferAllOwnerships()  → Safe receives proxy ownership
 ```
 
-`Deploy_Swap` runs steps 1–2 + 6 only (no HarborYield). Steps 2 optional executors are
-controlled by `SwapDeployOptions` (`deployCurve`, `deployBalancer`, `deployOneInch`).
-Default `run` uses registry + UniV3 only; `runFull` / `Deploy_Swap` use all three flags.
+Optional executors in `deploySwapStack` are controlled by `SwapDeployOptions`
+(`deployCurve`, `deployBalancer`, `deployOneInch`). `Deploy_Swap` enables all three.
 
-**Immutables wired at deploy time:** `HarborYield_v1` constructor takes
-`swapper = _predictAddress("swapper")` (passed from deploy script). Executor routers/Vaults
-are constructor args on impl deployment (`UniV3Swapper_v1(router)`,
-`BalancerSwapper_v1(BALANCER_V2_VAULT)`); the **proxy** address is what gets registered in
-`Swapper_v1`.
+**Harbor Yield consumer repo** then deploys HY infrastructure (Phase 2b) and wires routes
+via `_configureSwapRoutes` — typically registry + UniV3 only on default deploy, or the full
+stack when `runFull` is used. See the consumer repo's deploy scripts for peg-specific flow.
 
-**Important:** `_configureSwapRoutes` runs while the deploy script still owns the contracts.
-Route setters require owner (or delegated `*_SETTER_ROLE`).
+**Immutables wired at deploy time:** executor routers/Vaults are constructor args on impl
+deployment (`UniV3Swapper_v1(router)`, `BalancerSwapper_v1(BALANCER_V2_VAULT)`); the **proxy**
+address is what gets registered in `Swapper_v1`. The consumer passes
+`swapper = _predictAddress("swapper")` into `HarborYield_v1` at construction.
+
+**Important:** route setters require owner (or delegated `*_SETTER_ROLE`). Wire routes while
+the deploy script still owns the contracts, before `_transferAllOwnerships()`.
 
 ---
 
@@ -239,33 +233,36 @@ ISwapperConfig(swapper).setRoute(fromToken, toToken, executorProxy, feeRatio);
 ```
 
 - `executorProxy` = CREATE3 address of the executor (e.g. `_predictAddress("uniV3Swapper")`).
-- `feeRatio` = effective swap fee as 1e18-scaled ratio (e.g. `3e15` = 0.3%). HY reads this
-  in `distribute()` as the minting threshold — set it **≥** the real pool fee so residual
-  swaps only run when economically sensible.
+- `feeRatio` = effective swap fee as 1e18-scaled ratio (e.g. `3e15` = 0.3%). HarborYield
+  reads this in `distribute()` as the minting threshold — set it **≥** the real pool fee so
+  residual swaps only run when economically sensible.
 - Pass `executor = address(0)` to remove a registry entry.
 
 ### Example — ETH peg fxSAVE → wstETH (FxSaveWstEthSwapper)
 
-Production ETH wiring uses a **dedicated composite executor** (not UniV3). From
-[`Deploy_ETH_HarborYield`](src/Deploy_ETH_HarborYield.sol):
+Production ETH wiring uses a **dedicated composite executor** (not UniV3):
 
 ```solidity
 // Deploy (once per network, shared across pegs):
 deployFxSaveWstEthSwapper(state);
 address fxSaveWstEth = _predictAddress("fxSaveWstEthSwapper");
 
-// Layer 2 (registry) — in _configureSwapRoute:
+// Layer 2 (registry) — in consumer _configureSwapRoutes:
 ISwapperConfig(swapper).setRoute(wrappedCollateral, WSTETH, fxSaveWstEth, FXSAVE_TO_WSTETH_FEE_RATIO);
 ```
+
+Fee constant: [`ConfigSwap_ETH_mainnet.FXSAVE_TO_WSTETH_FEE_RATIO`](src/config/ConfigSwap_ETH_mainnet.sol).
 
 **No Layer 1 config** — venues and coin indices are compiled into
 [`ConfigFxSaveWstEthRoute_ETH_mainnet`](../src/swap/config/ConfigFxSaveWstEthRoute_ETH_mainnet.sol)
 and baked into the implementation. Route changes require a new implementation + UUPS upgrade
 (or a new dedicated executor proxy).
 
-**Slippage note:** intermediate Curve legs use `min_dy = 0`; only final wstETH output is
-bounded by HarborYield's oracle floor (`minAmountOut`). Monitor pool liquidity for large
-residual fxSAVE during `distribute()` Phase 3.
+**Slippage note (intentional tradeoff):** intermediate Curve legs use `min_dy = 0`; only final
+wstETH output is bounded by HarborYield's oracle floor (`minAmountOut`). Sandwich risk on
+intermediate legs is accepted for this peg-critical route. Monitor pool liquidity for large
+residual fxSAVE during `distribute()` Phase 3; consider keeper/aggregator rebalances for
+large notionals.
 
 ### Example — generic UniV3 pair (Layer 1 + Layer 2)
 
@@ -286,12 +283,13 @@ UniV3Swapper_v1(uniV3Swapper).setPath(
 Until Layer 1 is set, `getRoutesFrom` / `getRoute` return the executor but
 `UniV3Swapper.swap` reverts with `NoPathConfigured`.
 
-### Virtual hook pattern
+### Consumer wiring pattern
 
-Peg-specific deployers override `HarborYieldDeployer._configureSwapRoutes`:
+The Harbor Yield consumer repo overrides a virtual `_configureSwapRoutes` hook. Typical
+structure:
 
 ```solidity
-function _configureSwapRoutes(ConfigPeg peg, Config_MinterMarket[] memory markets) internal override {
+function _configureSwapRoutes(ConfigPeg peg, Config_MinterMarket[] memory markets) internal {
     address swapper = _predictAddress("swapper");
     address uniV3 = _predictAddress("uniV3Swapper");
     address fxSaveWstEth = _predictAddress("fxSaveWstEthSwapper"); // ETH hyETH
@@ -301,33 +299,37 @@ function _configureSwapRoutes(ConfigPeg peg, Config_MinterMarket[] memory market
     for (uint256 i = 0; i < markets.length; i++) {
         address wCol = IMinter(_predictAddress(_key(..., "minter"))).WRAPPED_COLLATERAL_TOKEN();
         _wireFxSaveToWstETH(swapper, fxSaveWstEth, wCol);
-        // _wireWstETHToStETH(swapper, curve, curve, ...);
-        // _wireStETHToWstETH(swapper, balancer, balancer, ...);
+        // _wireWstETHToStETH(swapper, curve, ...);
+        // _wireStETHToWstETH(swapper, balancer, ...);
     }
 }
 ```
 
-Keep executor wiring in private helpers so fork tests can override individual routes via
-`_configureSwapRoute` (see `DeployETHSetUp.t.sol`).
+Keep executor wiring in private helpers so fork tests in the consumer repo can override
+individual routes.
 
 ---
 
-## 5. Aggregator wiring (post-deploy)
+## 5. Aggregator wiring (consumer repo, post-deploy)
 
-The aggregator **does not** register in `Swapper_v1`. It connects directly to each HY
-instance.
+The aggregator **does not** register in `Swapper_v1`. The Harbor Yield consumer connects it
+directly to each HY instance.
 
 ```solidity
-// 1. Deploy adapter (once per network, shared across pegs)
+// 1. Deploy adapter (once per network, shared across pegs) — harbor-swap:
 deployOneInchSwapper(state);
 address oneInch = _predictAddress("oneInchSwapper");
 
-// 2. Point HY at the adapter (per HY peg instance)
+// 2. Point HY at the adapter (per HY peg instance) — consumer repo:
 IHarborYield(hy).setAggregatorSwapper(oneInch);
 
-// 3. Grant keeper role (per HY)
+// 3. Grant keeper role (per HY) — consumer repo:
 HarborYield_v1(hy).grantRoles(keeperAddress, HarborYield_v1(hy).AGGREGATOR_ROLE());
 ```
+
+**Authorization model (intentional tradeoff):** `OneInchSwapper_v1.swap` is open-access — it
+only spends `msg.sender`'s pre-approved balance. The role gate (`AGGREGATOR_ROLE`) lives on
+`HarborYield_v1.executeAggregatorSwap`, not on the adapter.
 
 **Keeper call:**
 
@@ -366,8 +368,8 @@ Requirements:
 - **Crypto pools** (`exchange(uint256 i, uint256 j, ...)`) — different selector and index
   type. Route via aggregator or add a dedicated `CurveCryptoSwapper_v1`.
 - **NG factory pools** with non-standard ABIs — verify on Etherscan before wiring.
-- **Multi-pool routes** (A → B → C across two Curve pools) — use aggregator or chain two
-  registry entries with an intermediate token (two separate swaps).
+- **Multi-pool routes** (A → B → C across two Curve pools) — use aggregator or a dedicated
+  composite executor (e.g. `FxSaveWstEthSwapper_v1`).
 
 **Discovering `i` and `j`:**
 
@@ -378,7 +380,7 @@ Requirements:
 
 **Legacy vs modern return type:** Older pools (e.g. 3pool) return `void` from `exchange`;
 newer pools return `uint256`. `CurveSwapper_v1` uses balance delta for `amountOut`, so both
-work. Always verify with `forge test` on a mainnet fork.
+work. Verify with a mainnet fork in the consumer repo before wiring.
 
 ### Balancer (`BalancerSwapper_v1`)
 
@@ -416,7 +418,7 @@ only `poolId` is stored. Ensure the pool actually contains both tokens.
 | `UniV3Swapper_v1` | `PATH_SETTER_ROLE` | Ops setting encoded paths |
 | `CurveSwapper_v1` | `ROUTE_SETTER_ROLE` | Ops setting pool + indices |
 | `BalancerSwapper_v1` | `ROUTE_SETTER_ROLE` | Ops setting poolId |
-| `HarborYield_v1` | `AGGREGATOR_ROLE` | Keeper / bot calling `executeAggregatorSwap` |
+| `HarborYield_v1` | `AGGREGATOR_ROLE` | Keeper / bot calling `executeAggregatorSwap` (consumer repo) |
 
 Owner on each contract can always perform setters and upgrades (UUPS). After deployment,
 ownership transfers to the Safe — route changes become Safe transactions (or role grants to
@@ -435,16 +437,17 @@ an ops multisig).
 
 ## 8. Verification checklist
 
-After wiring routes on a fork (`MAINNET_RPC_URL` in `.env`):
+**Unit tests (this repo):**
 
 ```bash
-set -a && source .env && set +a
-forge test --mc DeployETHSetUpTest -vv   # full ETH stack + swap registry
-forge test --mc 'UniV3SwapperTest|CurveSwapperTest|BalancerSwapperTest|OneInchSwapperTest' -vv
-forge test --mc HarborYieldTest --mt aggregator -vv
+forge build
+forge test --match-path "test/swap/**" -vv
 ```
 
-On-chain reads (replace addresses):
+**Fork / integration tests:** run in the Harbor Yield consumer repo (full ETH stack + swap
+registry + mocked oracles). Not included in harbor-swap.
+
+On-chain reads after deploy (replace addresses):
 
 ```solidity
 // Registry (single pair or legacy storage reads)
@@ -462,47 +465,28 @@ Swapper_v1(swapper).swapFeeRatios(from, to);
 UniV3Swapper_v1(uniV3).paths(from, to).length > 0;
 CurveSwapper_v1(curve).routes(from, to).pool != address(0);
 BalancerSwapper_v1(bal).poolIds(from, to) != bytes32(0);
-FxSaveWstEthSwapper_v1(fxSaveWstEth).swap(FXSAVE, WSTETH, ...); // fork test only
+// FxSaveWstEthSwapper: verify on mainnet fork in consumer repo
 
-// Aggregator
+// Aggregator (consumer repo)
 HarborYield_v1(hy).aggregatorSwapper() == oneInchProxy;
 HarborYield_v1(hy).hasAnyRole(keeper, AGGREGATOR_ROLE);
 OneInchSwapper_v1(oneInch).ROUTER() == 0x111111125421cA6dc452d289314280a0f8842A65;
 ```
 
 Dry-run a direct swap: fund the executor's caller (HY during `distribute`, or the executor
-proxy in isolation in tests), ensure `minAmountOut` respects HY's oracle floor (see
-`doc/design.md` §6.20).
+proxy in isolation in tests), ensure `minAmountOut` respects HY's oracle floor.
 
 ---
 
-## 9. Future repo extraction (Phase 3)
-
-The swap subtree under `src/swap/` is split-ready. Extraction to standalone
-`harbor-swapadapter` is **deferred** until:
-
-1. A second Harbor product imports `@harbor-swap/...`, or
-2. Audit/compliance requires a separately-versioned artifact, or
-3. The swap subtree dominates review scope.
-
-Mechanical recipe: [`src/swap/README.md`](../src/swap/README.md) § "When this becomes its
-own repo".
-
----
-
-## 10. Related files and repos
+## 9. Related files
 
 | File / repo | Role |
 |-------------|------|
-| [baofinance/harbor](https://github.com/baofinance/harbor) | Phase 1a — Minter, SP, SPM; provides `HarborDeployer`, BaoFactory, `@harbor-script/` |
-| [baofinance/harbor-price-aggregators](https://github.com/baofinance/harbor-price-aggregators) | Phase 1b — oracles (`Aggregator_stETH_ETH_mainnet`, etc.) via BaoFactory; see `script/README.md` there |
-| [`script/src/contracts/Swapper.sol`](src/contracts/Swapper.sol) | BaoFactory deploy for all swap proxies (incl. `deployFxSaveWstEthSwapper`) |
-| [`script/src/HarborYieldDeployer.sol`](src/HarborYieldDeployer.sol) | `_configureSwapRoutes` hook; `deployHarborYieldForPeg` |
+| [baofinance/harbor-swap](https://github.com/baofinance/harbor-swap) | This repo — swap contracts, deploy scripts, unit tests |
+| [baofinance/harbor](https://github.com/baofinance/harbor) | Phase 1a — Minter, SP, SPM; `HarborDeployer`, BaoFactory |
+| [baofinance/harbor-price-aggregators](https://github.com/baofinance/harbor-price-aggregators) | Phase 1b — oracles via BaoFactory |
+| [`script/src/contracts/Swapper.sol`](src/contracts/Swapper.sol) | BaoFactory deploy for all swap proxies |
 | [`script/src/DeploySwapStack.sol`](src/DeploySwapStack.sol) | `SwapDeployOptions`, `deploySwapStack` |
 | [`script/src/Deploy_Swap.sol`](src/Deploy_Swap.sol) | Standalone full swap stack deploy |
 | [`script/Deploy_Swap.s.sol`](../Deploy_Swap.s.sol) | Runnable forge script for swap-only deploy |
-| [`script/Deploy_ETH_HarborYield.s.sol`](../Deploy_ETH_HarborYield.s.sol) | Runnable forge script (`run` / `runFull`) |
-| [`script/src/Deploy_ETH_HarborYield.sol`](src/Deploy_ETH_HarborYield.sol) | ETH peg reference deploy |
-| [`doc/design.md`](../doc/design.md) §9 | Full cross-repo phase diagram |
 | [`src/swap/README.md`](../src/swap/README.md) | Architecture + threat model |
-| [`test/deployment/DeployETHSetUp.t.sol`](../test/deployment/DeployETHSetUp.t.sol) | Fork integration test (BaoFactory + mocked oracles) |

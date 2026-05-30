@@ -13,6 +13,9 @@ contract MockFxSaveScrvUsdPool {
     address public immutable fxSAVE;
     IERC4626 public immutable vault;
     uint256 public rate = 1e18;
+    bool public shouldRevert;
+    address public reentrantTarget;
+    bytes public reentrantCalldata;
 
     constructor(address fxSAVE_, IERC4626 vault_) {
         fxSAVE = fxSAVE_;
@@ -23,7 +26,19 @@ contract MockFxSaveScrvUsdPool {
         rate = rate_;
     }
 
+    function setShouldRevert(bool revert_) external {
+        shouldRevert = revert_;
+    }
+
+    function setReentrantCall(address target_, bytes calldata calldata_) external {
+        reentrantTarget = target_;
+        reentrantCalldata = calldata_;
+    }
+
     function exchange(int128 i, int128 j, uint256 dx, uint256 min_dy) external returns (uint256 shares) {
+        if (shouldRevert) {
+            revert("MockFxSaveScrvUsdPool: forced revert");
+        }
         require(i == 0 && j == 1, "MockFxSaveScrvUsdPool: bad indices");
         IERC20(fxSAVE).transferFrom(msg.sender, address(this), dx);
         uint256 crvUsd = (dx * rate) / 1e18;
@@ -31,5 +46,11 @@ contract MockFxSaveScrvUsdPool {
         IERC20(vault.asset()).approve(address(vault), crvUsd);
         shares = vault.deposit(crvUsd, msg.sender);
         require(shares >= min_dy, "MockFxSaveScrvUsdPool: slippage");
+
+        if (reentrantTarget != address(0)) {
+            // solhint-disable-next-line avoid-low-level-calls
+            (bool ok, ) = reentrantTarget.call(reentrantCalldata);
+            require(ok, "MockFxSaveScrvUsdPool: reentrant call failed");
+        }
     }
 }
