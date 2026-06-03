@@ -23,6 +23,12 @@ interface IAggregatorSwapper {
     /// @notice The underlying router call reverted; the original revert data is forwarded.
     error RouterCallFailed(bytes revertData);
 
+    /// @notice `routerData` is shorter than four bytes (no function selector).
+    error RouterCalldataTooShort();
+
+    /// @notice `routerData` selector is not on the Harbor 1inch v6 allowlist.
+    error DisallowedRouterSelector(bytes4 selector);
+
     /// @notice Post-call output is below the slippage floor.
     error InsufficientAmountOut(uint256 amountOut, uint256 minAmountOut);
 

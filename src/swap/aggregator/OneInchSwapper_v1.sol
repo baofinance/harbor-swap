@@ -11,6 +11,7 @@ import {HarborOwnableRoles} from "@bao/HarborOwnableRoles.sol";
 import {Token} from "@bao/Token.sol";
 
 import {IAggregatorSwapper} from "@harbor-swap/aggregator/IAggregatorSwapper.sol";
+import {OneInchV6Selectors} from "@harbor-swap/aggregator/OneInchV6Selectors.sol";
 
 /// @title OneInchSwapper_v1
 /// @notice Aggregator adapter that executes opaque keeper-built calldata against a fixed
@@ -25,6 +26,8 @@ import {IAggregatorSwapper} from "@harbor-swap/aggregator/IAggregatorSwapper.sol
 ///        only ever spends `msg.sender`'s pre-approved balance and returns proceeds to
 ///        `msg.sender`. Authorization gating lives at the consumer (e.g.
 ///        `HarborYield_v1.executeAggregatorSwap` role gate).
+///      - `routerData` must be at least 4 bytes and start with `OneInchV6Selectors.SWAP`
+///        (1inch v6 `swap(address,tuple,bytes)`). Other router entrypoints are rejected.
 ///      - This adapter is upgradeable (UUPS) so the router immutable can be repointed
 ///        across major aggregator upgrades by deploying a new implementation.
 /// @custom:oz-upgrades-unsafe-allow state-variable-immutable constructor
@@ -75,6 +78,8 @@ contract OneInchSwapper_v1 is// solhint-disable-line contract-name-capwords
         uint256 fromBalanceBefore = IERC20(fromToken).balanceOf(address(this));
         uint256 toBalanceBefore = IERC20(toToken).balanceOf(address(this));
 
+        _validateRouterData(routerData);
+
         IERC20(fromToken).forceApprove(ROUTER, amountIn);
         // solhint-disable-next-line avoid-low-level-calls
         (bool ok, bytes memory revertData) = ROUTER.call(routerData);
@@ -98,6 +103,17 @@ contract OneInchSwapper_v1 is// solhint-disable-line contract-name-capwords
         IERC20(toToken).safeTransfer(msg.sender, amountOut);
 
         emit AggregatorSwap(msg.sender, fromToken, toToken, amountIn, amountOut, refundedIn);
+    }
+
+    /// @dev Harbor Option A: only 1inch v6 `swap(address,tuple,bytes)` calldata from the Swap API.
+    function _validateRouterData(bytes calldata routerData) private pure {
+        if (routerData.length < 4) {
+            revert RouterCalldataTooShort();
+        }
+        bytes4 selector = bytes4(routerData[:4]);
+        if (selector != OneInchV6Selectors.SWAP) {
+            revert DisallowedRouterSelector(selector);
+        }
     }
 
     function _authorizeUpgrade(address) internal override onlyOwner {} // solhint-disable-line no-empty-blocks

@@ -34,6 +34,16 @@ contract FxSaveWstEthSwapper_v1 is// solhint-disable-line contract-name-capwords
     error PoolCallFailed(bytes revertData);
     error VaultRedeemFailed();
 
+    /// @notice Emitted after a successful fxSAVE → wstETH composite swap.
+    event FxSaveWstEthSwap(
+        address indexed caller,
+        address indexed fromToken,
+        address indexed toToken,
+        uint256 amountIn,
+        uint256 crvUsdOut,
+        uint256 amountOut
+    );
+
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
         _disableInitializers();
@@ -80,6 +90,8 @@ contract FxSaveWstEthSwapper_v1 is// solhint-disable-line contract-name-capwords
         if (amountOut < minAmountOut) {
             revert InsufficientOutput(amountOut, minAmountOut);
         }
+
+        emit FxSaveWstEthSwap(msg.sender, fromToken, toToken, amountIn, crvUsdOut, amountOut);
 
         IERC20(_wstEth()).safeTransfer(msg.sender, amountOut);
     }

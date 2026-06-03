@@ -17,15 +17,18 @@ forge build
 forge test --match-path "test/swap/**"
 ```
 
-**Test scope:** mock-based unit tests only (63 tests under `test/swap/`). Mainnet fork
+**Test scope:** mock-based unit tests only (66 tests under `test/swap/`). Mainnet fork
 integration (full ETH stack + oracle mocks) lives in the Harbor Yield consumer repo.
+
+**Aggregator calldata:** Harbor Option A — only 1inch v6 `swap` selector `0x07ed2379` is
+accepted (`OneInchV6Selectors.SWAP`). Build via 1inch Swap API / Pathfinder.
 
 **Known design tradeoffs** (documented in `src/swap/README.md`):
 
 - `FxSaveWstEthSwapper_v1` intermediate Curve legs use `min_dy = 0`; only final wstETH
-  output is bounded by the consumer's `minAmountOut`.
+  output is bounded by the consumer's `minAmountOut`. Route changes require impl upgrade.
 - `OneInchSwapper_v1` is open-access; authorization lives on the consumer's
-  `executeAggregatorSwap` role gate.
+  `executeAggregatorSwap` role gate. Selector allowlist does not validate swap parameters.
 
 ## License
 

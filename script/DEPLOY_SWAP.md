@@ -255,8 +255,12 @@ Fee constant: [`ConfigSwap_ETH_mainnet.FXSAVE_TO_WSTETH_FEE_RATIO`](src/config/C
 
 **No Layer 1 config** — venues and coin indices are compiled into
 [`ConfigFxSaveWstEthRoute_ETH_mainnet`](../src/swap/config/ConfigFxSaveWstEthRoute_ETH_mainnet.sol)
-and baked into the implementation. Route changes require a new implementation + UUPS upgrade
-(or a new dedicated executor proxy).
+and baked into the implementation.
+
+**Upgrading `FxSaveWstEthSwapper_v1`:** edit the config library + deploy a new implementation,
+then UUPS-upgrade the `fxSaveWstEthSwapper` proxy (or deploy a new proxy and update
+`Swapper_v1.setRoute`). Re-run fork validation on the composite path before mainnet execution.
+Successful swaps emit `FxSaveWstEthSwap(caller, from, to, amountIn, crvUsdOut, amountOut)`.
 
 **Slippage note (intentional tradeoff):** intermediate Curve legs use `min_dy = 0`; only final
 wstETH output is bounded by HarborYield's oracle floor (`minAmountOut`). Sandwich risk on
@@ -347,10 +351,21 @@ Requirements:
 
 - HY must hold `amountIn` of `fromToken` as idle balance (not locked in a vault).
 - `routerData` must target the immutable router baked into `OneInchSwapper_v1` (`0x1111…2A65`
-  on production). Building calldata is an off-chain concern (1inch API, Pathfinder, etc.).
+  on production). Building calldata is an off-chain concern (1inch Swap API / Pathfinder).
+- **Allowed calldata (Option A):** first four bytes must be `OneInchV6Selectors.SWAP`
+  (`0x07ed2379`, `swap(address,tuple,bytes)`). Other v6 entrypoints (`unoswap`, `clipperSwap`,
+  `fillOrder`, …) revert with `DisallowedRouterSelector`. Expand the allowlist in
+  [`OneInchV6Selectors.sol`](../src/swap/aggregator/OneInchV6Selectors.sol) only after ops
+  confirms keeper usage.
 - Set `minAmountOut` conservatively; slippage is enforced both inside 1inch calldata and by
   the adapter's balance-delta check.
+- `AGGREGATOR_ROLE` remains high-trust: whitelisting blocks wrong router *functions*, not bad
+  parameters inside an allowed `swap` call.
 - Disable aggregator: `setAggregatorSwapper(address(0))`.
+
+**Upgrading `OneInchSwapper_v1`:** deploy new implementation via `Swapper.sol`, UUPS-upgrade
+the existing `oneInchSwapper` proxy (or deploy a new proxy and point HY at it). The router
+immutable is fixed at implementation construction time.
 
 ---
 

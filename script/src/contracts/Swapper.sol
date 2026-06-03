@@ -195,7 +195,7 @@ abstract contract Swapper is HarborDeployer, ConfigOneInch, ConfigBalancer {
     }
 
     /// @notice Deploy OneInchSwapper with an explicit router address. Used by unit tests
-    ///         that wire a MockRawRouter (or future per-chain overrides if 1inch ever
+    ///         that wire a MockAggregationRouterV6 (or future per-chain overrides if 1inch ever
     ///         publishes a different address).
     function deployOneInchSwapper(
         DeploymentTypes.State memory stateData,

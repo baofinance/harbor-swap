@@ -35,7 +35,7 @@ src/swap/
 ```
 
 Tests mirror the source layout under `test/swap/` and use the `@harbor-swap-test/` remap.
-Cross-cutting mocks (`MockSwapper`, `MockUniV3Router`, `MockRawRouter`) stay in `test/mocks/`.
+Cross-cutting mocks (`MockSwapper`, `MockUniV3Router`, `MockAggregationRouterV6`) stay in `test/mocks/`.
 
 ## Two-mode design
 
@@ -90,6 +90,10 @@ Properties:
 
 - Arbitrary routes without deploying a new executor per pool.
 - Immutable router address (no caller-supplied target).
+- **Calldata allowlist (Option A):** `routerData` must be at least 4 bytes and start with
+  [`OneInchV6Selectors.SWAP`](aggregator/OneInchV6Selectors.sol) (`0x07ed2379` —
+  `swap(address,tuple,bytes)` on Aggregation Router V6). Keepers must use 1inch Swap API /
+  Pathfinder output; `unoswap`, `clipperSwap`, and `fillOrder` selectors are rejected.
 - Two-stage approve / call / zero approval flow at both HY and adapter layers.
 - Slippage enforced twice: by the router's own minReturn inside the calldata and by the
   adapter's post-call balance-delta check against `minAmountOut`.
@@ -121,6 +125,7 @@ Route changes emit events for indexers and deploy verification:
 | `CurveSwapper_v1` | `RouteSet(...)` | `setRoute` |
 | `BalancerSwapper_v1` | `RouteSet(...)` | `setRoute` |
 | `OneInchSwapper_v1` | `AggregatorSwap(...)` | each `swap` |
+| `FxSaveWstEthSwapper_v1` | `FxSaveWstEthSwap(...)` | each `swap` |
 
 Off-chain tooling can also call `ISwapper.getRoute(from, to)` for a single pair without
 building a one-element `targets` array.
@@ -159,6 +164,9 @@ Executors (`UniV3Swapper_v1`, `CurveSwapper_v1`, `BalancerSwapper_v1`, `FxSaveWs
     caller-supplied; setter is `onlyOwnerOrRoles(ROUTE_SETTER_ROLE)`. **Single pool per call.**
   - `FxSaveWstEthSwapper_v1`: hardcoded mainnet venues in
     `config/ConfigFxSaveWstEthRoute_ETH_mainnet.sol` (two Curve pools + scrvUSD vault).
+    **Route changes:** deploy a new implementation and UUPS-upgrade the proxy (or deploy a
+    new `fxSaveWstEthSwapper` proxy and re-register in `Swapper_v1`). There is no on-chain
+    per-pool setter.
     **Intermediate slippage:** legs 1–2 use Curve `min_dy = 0`; only final wstETH output
     is bounded by `minAmountOut` from HarborYield (oracle floor). Sandwich risk on
     intermediate legs is accepted for this peg-critical route; monitor pool liquidity and
@@ -175,10 +183,10 @@ Aggregator (`OneInchSwapper_v1`):
 
 - Immutable router (1inch AggregationRouterV6 on production; constructor arg overridable
   for tests / future routers). Caller supplies opaque calldata; recipient and amounts are
-  encoded in that calldata. The adapter only enforces slippage by balance delta and resets
-  the router allowance to zero — it does **not** validate the calldata, so the call site
-  must hold `AGGREGATOR_ROLE` on `HarborYield_v1` (or own the consumer outright) and
-  provide vetted keeper-built routes.
+  encoded in that calldata. The adapter enforces **selector allowlist** (Option A: only
+  `OneInchV6Selectors.SWAP`), slippage by balance delta, and resets the router allowance to
+  zero. It does **not** decode swap parameters inside allowed calldata — the call site must
+  hold `AGGREGATOR_ROLE` on `HarborYield_v1` and provide vetted keeper-built routes.
 - Unspent `fromToken` after a partial fill is refunded to `msg.sender` (HY), so no input
   can accrue inside the adapter between calls.
 - The adapter is open-access (no role gate on `swap`) because it operates purely on
@@ -236,7 +244,7 @@ This package lives in [baofinance/harbor-swap](https://github.com/baofinance/har
 Harbor Yield and other consumers import it via submodule or dependency and use the
 `@harbor-swap/` remapping defined in [`foundry.toml`](../../foundry.toml).
 
-**Test scope:** mock-based unit tests under `test/swap/` (63 tests). Mainnet fork
+**Test scope:** mock-based unit tests under `test/swap/` (66 tests). Mainnet fork
 integration (full ETH stack + oracle mocks) lives in the Harbor Yield consumer repo, not here.
 
 **Intentional design tradeoffs** (see threat model above):

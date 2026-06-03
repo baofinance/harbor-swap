@@ -187,6 +187,9 @@ contract FxSaveWstEthSwapperTest is BaoTest, Swapper {
         uint256 amountIn = 1 ether;
         _mintAndApprove(fxSAVE, swapperProxy, amountIn);
 
+        vm.expectEmit(true, true, true, true);
+        emit FxSaveWstEthSwapper_v1.FxSaveWstEthSwap(address(this), fxSAVE, wstETH, amountIn, amountIn, amountIn);
+
         uint256 amountOut = ISwapExecutor(swapperProxy).swap(fxSAVE, wstETH, amountIn, 0);
 
         assertEq(amountOut, amountIn, "mock 1:1 wstETH out");
