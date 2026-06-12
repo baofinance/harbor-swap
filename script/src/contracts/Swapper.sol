@@ -28,7 +28,7 @@ import {ConfigBalancer} from "@harbor-swap-script/config/ConfigBalancer.sol";
 ///      Deployment pattern:
 ///        deploySwapper(state)               — registry
 ///        deployUniV3Swapper(state)          — UniV3 executor (uses _uniV3RouterAddress())
-///        deployFxSaveWstEthSwapper(state)   — fxSAVE → wstETH composite (ETH mainnet route)
+///        deployFxSaveWstEthSwapper(state)   — fxSAVE ↔ wstETH composite (ETH mainnet route)
 ///        deployCurveSwapper(state)     — Curve executor (no canonical router; pool
 ///                                        addresses come from per-pair setRoute config)
 ///        deployBalancerSwapper(state)  — Balancer V2 executor (uses ConfigBalancer.VAULT)
@@ -225,7 +225,7 @@ abstract contract Swapper is HarborDeployer, ConfigOneInch, ConfigBalancer {
         proxy = _deployProxyAndRecord(stateData, "oneInchSwapper", impl, initData);
     }
 
-    // ─── FxSaveWstEthSwapper_v1 (fxSAVE → wstETH composite route) ───────────
+    // ─── FxSaveWstEthSwapper_v1 (fxSAVE ↔ wstETH composite route) ───────────
 
     /// @notice Deploy FxSaveWstEthSwapper_v1 implementation only.
     ///         Virtual so tests can inject a harness with mock pool/vault addresses.
@@ -233,7 +233,7 @@ abstract contract Swapper is HarborDeployer, ConfigOneInch, ConfigBalancer {
         impl = address(new FxSaveWstEthSwapper_v1());
     }
 
-    /// @notice Deploy the fxSAVE → wstETH composite executor for Ethereum mainnet.
+    /// @notice Deploy the fxSAVE ↔ wstETH composite executor for Ethereum mainnet.
     ///         Route constants are compiled into the implementation via
     ///         `ConfigFxSaveWstEthRoute_ETH_mainnet`.
     function deployFxSaveWstEthSwapper(DeploymentTypes.State memory stateData) internal returns (address proxy) {

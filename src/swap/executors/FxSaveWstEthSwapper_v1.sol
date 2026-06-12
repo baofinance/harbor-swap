@@ -14,14 +14,13 @@ import {ISwapExecutor} from "@harbor-swap/interfaces/ISwapExecutor.sol";
 import {ConfigFxSaveWstEthRoute_ETH_mainnet} from "@harbor-swap/config/ConfigFxSaveWstEthRoute_ETH_mainnet.sol";
 
 /// @title FxSaveWstEthSwapper_v1
-/// @notice Composite `ISwapExecutor` for the peg-critical fxSAVE → wstETH route on Ethereum
-///         mainnet. Executes three on-chain steps atomically:
-///           1. Curve fxSAVE/scrvUSD pool: fxSAVE → scrvUSD vault shares
-///           2. scrvUSD vault redeem: shares → crvUSD
-///           3. Curve TricryptoLLAMA pool: crvUSD → wstETH
-/// @dev Route constants live in `ConfigFxSaveWstEthRoute_ETH_mainnet`. Only `(FXSAVE, WSTETH)`
-///      is supported. Slippage is enforced on final wstETH output; intermediate legs use
-///      `min_dy = 0` on Curve calls (HY passes an oracle-bounded `minAmountOut` for wstETH).
+/// @notice Composite `ISwapExecutor` for the peg-critical fxSAVE ↔ wstETH routes on Ethereum
+///         mainnet.
+/// @dev Forward (Harbor `distribute()` Phase 3): fxSAVE → scrvUSD shares → redeem → wstETH.
+///      Reverse (Curve UI path): wstETH → crvUSD → scrvUSD deposit → fxSAVE.
+///      Route constants live in `ConfigFxSaveWstEthRoute_ETH_mainnet`. Only `(FXSAVE, WSTETH)`
+///      and `(WSTETH, FXSAVE)` are supported. Slippage is enforced on final output; intermediate
+///      legs use `min_dy = 0` on Curve calls (consumer passes oracle-bounded `minAmountOut`).
 ///      Curve pools are invoked via low-level `exchange` calls with balance-delta accounting,
 ///      matching `CurveSwapper_v1` behaviour for void-return and uint256-return pools.
 // slither-disable-next-line missing-inheritance — false positive: initialize(address,address) matches IHarborYieldEntryInit by coincidence
@@ -33,14 +32,16 @@ contract FxSaveWstEthSwapper_v1 is// solhint-disable-line contract-name-capwords
     error InsufficientOutput(uint256 amountOut, uint256 minAmountOut);
     error PoolCallFailed(bytes revertData);
     error VaultRedeemFailed();
+    error VaultDepositFailed();
 
-    /// @notice Emitted after a successful fxSAVE → wstETH composite swap.
+    /// @notice Emitted after a successful fxSAVE ↔ wstETH composite swap.
+    /// @param intermediateAmount crvUSD after vault redeem (forward) or after Tricrypto (reverse).
     event FxSaveWstEthSwap(
         address indexed caller,
         address indexed fromToken,
         address indexed toToken,
         uint256 amountIn,
-        uint256 crvUsdOut,
+        uint256 intermediateAmount,
         uint256 amountOut
     );
 
@@ -62,20 +63,28 @@ contract FxSaveWstEthSwapper_v1 is// solhint-disable-line contract-name-capwords
         uint256 amountIn,
         uint256 minAmountOut
     ) external override nonReentrant returns (uint256 amountOut) {
-        if (fromToken != _fxSave() || toToken != _wstEth()) {
-            revert UnsupportedPair(fromToken, toToken);
+        if (fromToken == _fxSave() && toToken == _wstEth()) {
+            return _swapFxSaveToWstEth(msg.sender, amountIn, minAmountOut);
         }
+        if (fromToken == _wstEth() && toToken == _fxSave()) {
+            return _swapWstEthToFxSave(msg.sender, amountIn, minAmountOut);
+        }
+        revert UnsupportedPair(fromToken, toToken);
+    }
 
-        IERC20(fromToken).safeTransferFrom(msg.sender, address(this), amountIn);
+    function _swapFxSaveToWstEth(
+        address recipient,
+        uint256 amountIn,
+        uint256 minAmountOut
+    ) private returns (uint256 amountOut) {
+        IERC20(_fxSave()).safeTransferFrom(recipient, address(this), amountIn);
 
         uint256 wstEthBefore = IERC20(_wstEth()).balanceOf(address(this));
 
-        // Step 1: fxSAVE → scrvUSD vault shares on fxSAVE/scrvUSD pool.    
         _curveExchange(_poolFxSaveScrvUsd(), _pool2IFxSave(), _pool2JScrvUsd(), _fxSave(), amountIn, 0);
 
         uint256 vaultShares = IERC20(_scrvUsdVault()).balanceOf(address(this));
 
-        // Step 2: scrvUSD vault shares → crvUSD.
         IERC20(_scrvUsdVault()).forceApprove(_scrvUsdVault(), vaultShares);
         uint256 crvUsdOut = IERC4626(_scrvUsdVault()).redeem(vaultShares, address(this), address(this));
         IERC20(_scrvUsdVault()).forceApprove(_scrvUsdVault(), 0);
@@ -83,7 +92,6 @@ contract FxSaveWstEthSwapper_v1 is// solhint-disable-line contract-name-capwords
             revert VaultRedeemFailed();
         }
 
-        // Step 3: crvUSD → wstETH on TricryptoLLAMA.
         _curveExchange(_poolTricryptoLlama(), _pool1ICrvUsd(), _pool1JWstEth(), _crvUsd(), crvUsdOut, minAmountOut);
 
         amountOut = IERC20(_wstEth()).balanceOf(address(this)) - wstEthBefore;
@@ -91,9 +99,51 @@ contract FxSaveWstEthSwapper_v1 is// solhint-disable-line contract-name-capwords
             revert InsufficientOutput(amountOut, minAmountOut);
         }
 
-        emit FxSaveWstEthSwap(msg.sender, fromToken, toToken, amountIn, crvUsdOut, amountOut);
+        emit FxSaveWstEthSwap(recipient, _fxSave(), _wstEth(), amountIn, crvUsdOut, amountOut);
 
-        IERC20(_wstEth()).safeTransfer(msg.sender, amountOut);
+        IERC20(_wstEth()).safeTransfer(recipient, amountOut);
+    }
+
+    function _swapWstEthToFxSave(
+        address recipient,
+        uint256 amountIn,
+        uint256 minAmountOut
+    ) private returns (uint256 amountOut) {
+        IERC20(_wstEth()).safeTransferFrom(recipient, address(this), amountIn);
+
+        uint256 fxSaveBefore = IERC20(_fxSave()).balanceOf(address(this));
+
+        _curveExchange(_poolTricryptoLlama(), _pool1JWstEth(), _pool1ICrvUsd(), _wstEth(), amountIn, 0);
+
+        uint256 crvUsdBal = IERC20(_crvUsd()).balanceOf(address(this));
+        if (crvUsdBal == 0) {
+            revert VaultDepositFailed();
+        }
+
+        IERC20(_crvUsd()).forceApprove(_scrvUsdVault(), crvUsdBal);
+        uint256 vaultShares = IERC4626(_scrvUsdVault()).deposit(crvUsdBal, address(this));
+        IERC20(_crvUsd()).forceApprove(_scrvUsdVault(), 0);
+        if (vaultShares == 0) {
+            revert VaultDepositFailed();
+        }
+
+        _curveExchange(
+            _poolFxSaveScrvUsd(),
+            _pool2JScrvUsd(),
+            _pool2IFxSave(),
+            _scrvUsdVault(),
+            vaultShares,
+            minAmountOut
+        );
+
+        amountOut = IERC20(_fxSave()).balanceOf(address(this)) - fxSaveBefore;
+        if (amountOut < minAmountOut) {
+            revert InsufficientOutput(amountOut, minAmountOut);
+        }
+
+        emit FxSaveWstEthSwap(recipient, _wstEth(), _fxSave(), amountIn, crvUsdBal, amountOut);
+
+        IERC20(_fxSave()).safeTransfer(recipient, amountOut);
     }
 
     function _curveExchange(

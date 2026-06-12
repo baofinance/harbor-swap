@@ -8,7 +8,7 @@ import {MockERC20} from "@bao-test/mocks/MockERC20.sol";
 
 /// @notice Mock for the fxSAVE/scrvUSD Curve pool where coin(1) is the scrvUSD ERC4626 vault.
 ///         `exchange(0, 1, dx, min_dy)` pulls fxSAVE and deposits crvUSD into the vault for
-///         the caller, mimicking the mainnet pool output of vault shares.
+///         the caller. `exchange(1, 0, dx, min_dy)` pulls vault shares and mints fxSAVE.
 contract MockFxSaveScrvUsdPool {
     address public immutable fxSAVE;
     IERC4626 public immutable vault;
@@ -35,17 +35,26 @@ contract MockFxSaveScrvUsdPool {
         reentrantCalldata = calldata_;
     }
 
-    function exchange(int128 i, int128 j, uint256 dx, uint256 min_dy) external returns (uint256 shares) {
+    function exchange(int128 i, int128 j, uint256 dx, uint256 min_dy) external returns (uint256 dy) {
         if (shouldRevert) {
             revert("MockFxSaveScrvUsdPool: forced revert");
         }
-        require(i == 0 && j == 1, "MockFxSaveScrvUsdPool: bad indices");
-        IERC20(fxSAVE).transferFrom(msg.sender, address(this), dx);
-        uint256 crvUsd = (dx * rate) / 1e18;
-        MockERC20(address(vault.asset())).mint(address(this), crvUsd);
-        IERC20(vault.asset()).approve(address(vault), crvUsd);
-        shares = vault.deposit(crvUsd, msg.sender);
-        require(shares >= min_dy, "MockFxSaveScrvUsdPool: slippage");
+
+        if (i == 0 && j == 1) {
+            IERC20(fxSAVE).transferFrom(msg.sender, address(this), dx);
+            uint256 crvUsd = (dx * rate) / 1e18;
+            MockERC20(address(vault.asset())).mint(address(this), crvUsd);
+            IERC20(vault.asset()).approve(address(vault), crvUsd);
+            dy = vault.deposit(crvUsd, msg.sender);
+            require(dy >= min_dy, "MockFxSaveScrvUsdPool: slippage");
+        } else if (i == 1 && j == 0) {
+            IERC20(address(vault)).transferFrom(msg.sender, address(this), dx);
+            dy = (dx * rate) / 1e18;
+            MockERC20(fxSAVE).mint(msg.sender, dy);
+            require(dy >= min_dy, "MockFxSaveScrvUsdPool: slippage");
+        } else {
+            revert("MockFxSaveScrvUsdPool: bad indices");
+        }
 
         if (reentrantTarget != address(0)) {
             // solhint-disable-next-line avoid-low-level-calls

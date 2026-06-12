@@ -17,7 +17,7 @@ forge build
 forge test --match-path "test/swap/**"
 ```
 
-**Test scope:** mock-based unit tests only (66 tests under `test/swap/`). Mainnet fork
+**Test scope:** mock-based unit tests only (71 tests under `test/swap/`). Mainnet fork
 integration (full ETH stack + oracle mocks) lives in the Harbor Yield consumer repo.
 
 **Aggregator calldata:** Harbor Option A — only 1inch v6 `swap` selector `0x07ed2379` is

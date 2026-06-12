@@ -6,6 +6,7 @@ import {DeploymentState} from "@bao-script/deployment/DeploymentState.sol";
 import {DeploymentTypes} from "@bao-script/deployment/DeploymentTypes.sol";
 import {DeploySwapStack} from "@harbor-swap-script/DeploySwapStack.sol";
 import {ConfigSwap_ETH_mainnet} from "@harbor-swap-script/config/ConfigSwap_ETH_mainnet.sol";
+import {ISwapperConfig} from "@harbor-swap/interfaces/ISwapperConfig.sol";
 
 /// @notice Abstract deploy class for the full Harbor swap stack (registry + all executors + 1inch).
 /// @dev Lean concrete scripts inherit this and add `is Script` for forge broadcast context.
@@ -30,6 +31,7 @@ abstract contract Deploy_Swap is DeploySwapStack, ConfigSwap_ETH_mainnet {
 
         deploySwapStack(state, _fullSwapDeployOptions());
         deployFxSaveWstEthSwapper(state);
+        configureFxSaveWstEthRoutes();
 
         flush("", "transfer swap ownership");
         _transferAllOwnerships();
@@ -37,5 +39,19 @@ abstract contract Deploy_Swap is DeploySwapStack, ConfigSwap_ETH_mainnet {
         _executeLocal();
 
         console.log("=== Swap Stack Deployment Done ===");
+    }
+
+    /// @notice Register fxSAVE ↔ wstETH in `Swapper_v1` (Layer 2 only; venues are in the executor impl).
+    ///         Callable while the deploy script still owns the registry proxy.
+    function configureFxSaveWstEthRoutes() internal {
+        address swapper = _predictAddress("swapper");
+        address fxSaveWstEth = _predictAddress("fxSaveWstEthSwapper");
+
+        console.log("--- Configuring fxSAVE <-> wstETH registry routes ---");
+        console.log("  Swapper:           %s", swapper);
+        console.log("  FxSaveWstEth exec: %s", fxSaveWstEth);
+
+        ISwapperConfig(swapper).setRoute(FXSAVE, WSTETH, fxSaveWstEth, FXSAVE_TO_WSTETH_FEE_RATIO);
+        ISwapperConfig(swapper).setRoute(WSTETH, FXSAVE, fxSaveWstEth, WSTETH_TO_FXSAVE_FEE_RATIO);
     }
 }

@@ -26,7 +26,7 @@ src/swap/
                                     exchange / exchange_underlying selector)
     BalancerSwapper_v1.sol          Balancer V2 single-swap executor (immutable Vault,
                                     per-pair bytes32 poolId, GIVEN_IN semantics)
-    FxSaveWstEthSwapper_v1.sol      Composite fxSAVE → wstETH (Curve + scrvUSD vault + Curve)
+    FxSaveWstEthSwapper_v1.sol      Composite fxSAVE ↔ wstETH (Curve + scrvUSD vault + Curve)
   config/
     ConfigFxSaveWstEthRoute_ETH_mainnet.sol  Mainnet route constants for FxSaveWstEthSwapper
   aggregator/
@@ -58,9 +58,9 @@ Properties:
     Pool is the approval target (no canonical Curve router across chains).
   - **Balancer V2**: `bytes32 poolId` per pair via `setRoute`; the immutable Vault is
     the single approval target for every Balancer swap.
-  - **Composite routes** (e.g. fxSAVE → wstETH): dedicated executors such as
+  - **Composite routes** (e.g. fxSAVE ↔ wstETH): dedicated executors such as
     `FxSaveWstEthSwapper_v1` with route constants in `config/` libraries; registered
-    in `Swapper_v1` via `setRoute` at deploy time.
+    in `Swapper_v1` via `setRoute` at deploy time (one executor proxy per pair direction).
 - Trust boundary: only the registry's stored executor address is called; executors only
   call their immutable router/vault (Uni, Balancer) or the governance-configured pool
   storage (Curve).
@@ -164,6 +164,7 @@ Executors (`UniV3Swapper_v1`, `CurveSwapper_v1`, `BalancerSwapper_v1`, `FxSaveWs
     caller-supplied; setter is `onlyOwnerOrRoles(ROUTE_SETTER_ROLE)`. **Single pool per call.**
   - `FxSaveWstEthSwapper_v1`: hardcoded mainnet venues in
     `config/ConfigFxSaveWstEthRoute_ETH_mainnet.sol` (two Curve pools + scrvUSD vault).
+    Supports **fxSAVE → wstETH** (redeem path) and **wstETH → fxSAVE** (deposit path).
     **Route changes:** deploy a new implementation and UUPS-upgrade the proxy (or deploy a
     new `fxSaveWstEthSwapper` proxy and re-register in `Swapper_v1`). There is no on-chain
     per-pool setter.
@@ -214,10 +215,12 @@ Deploy helpers:
   router constant from [`ConfigOneInch`](../../script/src/config/ConfigOneInch.sol). An
   overload accepting an explicit router address is used by unit tests.
 - `deployFxSaveWstEthSwapper(state)` — deploys `FxSaveWstEthSwapper_v1` with the mainnet
-  fxSAVE → wstETH route compiled into the implementation
+  fxSAVE ↔ wstETH routes compiled into the implementation
   ([`ConfigFxSaveWstEthRoute_ETH_mainnet`](config/ConfigFxSaveWstEthRoute_ETH_mainnet.sol)).
-  Used by the Harbor Yield consumer repo for hyETH (imports `@harbor-swap/` from
-  [baofinance/harbor-swap](https://github.com/baofinance/harbor-swap)).
+- `configureFxSaveWstEthRoutes()` — on [`Deploy_Swap`](../../script/src/Deploy_Swap.sol):
+  registers both directions in `Swapper_v1` via `ISwapperConfig.setRoute` (uses
+  [`ConfigSwap_ETH_mainnet`](../../script/src/config/ConfigSwap_ETH_mainnet.sol) token +
+  fee constants). Called automatically by `Deploy_Swap.deploySwapInfrastructure`.
 
 Each peg-specific Harbor Yield deployer overrides `_configureSwapRoutes` to do two layers of
 wiring per pair:
@@ -244,7 +247,7 @@ This package lives in [baofinance/harbor-swap](https://github.com/baofinance/har
 Harbor Yield and other consumers import it via submodule or dependency and use the
 `@harbor-swap/` remapping defined in [`foundry.toml`](../../foundry.toml).
 
-**Test scope:** mock-based unit tests under `test/swap/` (66 tests). Mainnet fork
+**Test scope:** mock-based unit tests under `test/swap/` (71 tests). Mainnet fork
 integration (full ETH stack + oracle mocks) lives in the Harbor Yield consumer repo, not here.
 
 **Intentional design tradeoffs** (see threat model above):

@@ -100,7 +100,7 @@ HY peg instances on the same network):
 | `curveSwapper` | `CurveSwapper_v1` |
 | `balancerSwapper` | `BalancerSwapper_v1` |
 | `oneInchSwapper` | `OneInchSwapper_v1` |
-| `fxSaveWstEthSwapper` | `FxSaveWstEthSwapper_v1` (ETH mainnet fxSAVE → wstETH composite) |
+| `fxSaveWstEthSwapper` | `FxSaveWstEthSwapper_v1` (ETH mainnet fxSAVE ↔ wstETH composite) |
 
 Per-peg HY uses `{pegKey}::harborYield`, `{pegKey}::beacon`, etc. — configured in the
 Harbor Yield consumer repo.
@@ -189,8 +189,9 @@ which runs:
 Phase 2a — harbor-swap deploy script (BaoFactory operator)
   1. _setSaltPrefix(saltPrefix)
   2. deploySwapStack(state, fullOpts)  → swapper + uniV3 + curve + balancer + oneInch
-  3. deployFxSaveWstEthSwapper(state)  → fxSAVE → wstETH composite executor
-  4. flush + _transferAllOwnerships()  → Safe receives proxy ownership
+  3. deployFxSaveWstEthSwapper(state)  → fxSAVE ↔ wstETH composite executor
+  4. configureFxSaveWstEthRoutes()     → registry Layer 2 for both directions
+  5. flush + _transferAllOwnerships()  → Safe receives proxy ownership
 ```
 
 Optional executors in `deploySwapStack` are controlled by `SwapDeployOptions`
@@ -238,20 +239,26 @@ ISwapperConfig(swapper).setRoute(fromToken, toToken, executorProxy, feeRatio);
   residual swaps only run when economically sensible.
 - Pass `executor = address(0)` to remove a registry entry.
 
-### Example — ETH peg fxSAVE → wstETH (FxSaveWstEthSwapper)
+### Example — ETH peg fxSAVE ↔ wstETH (FxSaveWstEthSwapper)
 
-Production ETH wiring uses a **dedicated composite executor** (not UniV3):
+Production ETH wiring uses a **dedicated composite executor** (not UniV3). One proxy handles
+both directions; register each pair separately in `Swapper_v1`:
 
 ```solidity
 // Deploy (once per network, shared across pegs):
 deployFxSaveWstEthSwapper(state);
 address fxSaveWstEth = _predictAddress("fxSaveWstEthSwapper");
 
-// Layer 2 (registry) — in consumer _configureSwapRoutes:
-ISwapperConfig(swapper).setRoute(wrappedCollateral, WSTETH, fxSaveWstEth, FXSAVE_TO_WSTETH_FEE_RATIO);
+// Layer 2 (registry) — `Deploy_Swap.configureFxSaveWstEthRoutes()` on standalone deploy,
+// or equivalent in consumer _configureSwapRoutes:
+ISwapperConfig(swapper).setRoute(FXSAVE, WSTETH, fxSaveWstEth, FXSAVE_TO_WSTETH_FEE_RATIO);
+ISwapperConfig(swapper).setRoute(WSTETH, FXSAVE, fxSaveWstEth, WSTETH_TO_FXSAVE_FEE_RATIO);
 ```
 
-Fee constant: [`ConfigSwap_ETH_mainnet.FXSAVE_TO_WSTETH_FEE_RATIO`](src/config/ConfigSwap_ETH_mainnet.sol).
+Fee constants: [`ConfigSwap_ETH_mainnet`](src/config/ConfigSwap_ETH_mainnet.sol)
+(`FXSAVE_TO_WSTETH_FEE_RATIO`, `WSTETH_TO_FXSAVE_FEE_RATIO`). On pegs where wrapped
+collateral differs from mainnet `FXSAVE`, use the peg's wrapped collateral address instead of
+`FXSAVE` in `setRoute` (executor impl still uses mainnet venue constants).
 
 **No Layer 1 config** — venues and coin indices are compiled into
 [`ConfigFxSaveWstEthRoute_ETH_mainnet`](../src/swap/config/ConfigFxSaveWstEthRoute_ETH_mainnet.sol)
@@ -260,7 +267,8 @@ and baked into the implementation.
 **Upgrading `FxSaveWstEthSwapper_v1`:** edit the config library + deploy a new implementation,
 then UUPS-upgrade the `fxSaveWstEthSwapper` proxy (or deploy a new proxy and update
 `Swapper_v1.setRoute`). Re-run fork validation on the composite path before mainnet execution.
-Successful swaps emit `FxSaveWstEthSwap(caller, from, to, amountIn, crvUsdOut, amountOut)`.
+Successful swaps emit `FxSaveWstEthSwap(caller, from, to, amountIn, intermediateAmount, amountOut)`
+where `intermediateAmount` is crvUSD after vault redeem (forward) or after Tricrypto (reverse).
 
 **Slippage note (intentional tradeoff):** intermediate Curve legs use `min_dy = 0`; only final
 wstETH output is bounded by HarborYield's oracle floor (`minAmountOut`). Sandwich risk on
