@@ -38,6 +38,6 @@ jobs:
           fetch-depth: 0
 
       - name: Run Bao-base CI actions
-        uses: ./lib/harbor/lib/bao-base/.github/actions/test-foundry
+        uses: ./lib/bao-base/.github/actions/test-foundry
         with:
           foundry: ${{ matrix.foundry }}
