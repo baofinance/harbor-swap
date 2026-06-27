@@ -1,0 +1,100 @@
+[lsp]
+compilation_delay = 0.5
+
+[compiler.solc.optimizer]
+enabled = false # unset = let the compiler decide
+# runs = 200
+
+[compiler.solc]
+# Exclude most of lib/ but allow harbor/src and harbor/lib/bao-base/src so
+# Wake can generate pytypes for them. bao-base is consumed transitively
+# through lib/harbor/lib/bao-base (no direct submodule).
+exclude_paths = [
+  "node_modules",
+  "venv",
+  "doc",
+  "fx",
+  "lib/forge-std",
+  "lib/openzeppelin-contracts-upgradeable",
+  "lib/openzeppelin-foundry-upgrades",
+  "lib/solady",
+  "lib/chainlink-brownie-contracts",
+  # Exclude nested dependencies within harbor we don't need pytypes for
+  "lib/harbor/lib/forge-std",
+  "lib/harbor/lib/openzeppelin-contracts-upgradeable",
+  "lib/harbor/lib/openzeppelin-foundry-upgrades",
+  "lib/harbor/lib/solady",
+  "lib/harbor/lib/chainlink-brownie-contracts",
+  "lib/harbor/lib/bao-base/lib",
+  "lib/harbor/lib/bao-base/test",
+  "lib/harbor/lib/bao-base/samples",
+  "lib/harbor/test",
+  "lib/harbor/doc",
+  "lib/harbor/script",
+]
+# include paths are for import resolution
+include_paths = []
+remappings = [
+  "ds-test/=lib/forge-std/lib/ds-test/src/",
+  "forge-std/=lib/forge-std/src/",
+  "src/=lib/harbor/src/",
+  "script/=lib/harbor/script/",
+  "test/=lib/harbor/test/",
+  "@openzeppelin/contracts/=lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/contracts/",
+  "@openzeppelin/contracts-upgradeable/=lib/openzeppelin-contracts-upgradeable/contracts/",
+  "@solady/=lib/solady/src/",
+  "@uniswap/v3-periphery/=lib/v3-periphery/",
+  "@uniswap/v3-core/=lib/v3-core/",
+  "@harbor-swap/=src/swap/",
+  "@harbor-swap-test/=test/swap/",
+  "@harbor-swap-test-mocks/=test/mocks/",
+  "@harbor-swap-script/=script/src/",
+  "@harbor/=lib/harbor/src/",
+  "@harbor-script/=lib/harbor/script/",
+  "@harbor-test/=lib/harbor/test/",
+  "@bao/=lib/bao-base/src/",
+  "@bao-test/=lib/bao-base/test/",
+  "@bao-script/=lib/bao-base/script/",
+  "@bao-factory/=lib/bao-base/lib/bao-factory/src/",
+  "@bao-factory-test/=lib/bao-base/lib/bao-factory/test/",
+]
+
+
+[lsp.code_lens]
+enable = true
+
+[lsp.detectors]
+enable = false
+
+[detectors]
+# ignore_paths = ["test"]
+# exclude_paths = ["node_modules", "lib", "script"]
+only = []
+#exclude = [
+#  "abi-encode-with-signature",
+#  "axelar-proxy-contract-id",
+#  "balance-relied-on",
+#  "calldata-tuple-reencoding-head-overflow-bug",
+#  "call-options-not-called",
+#  "empty-byte-array-copy-bug",
+#  "msg-value-nonpayable-function",
+#  "unused-contract",
+#  "unchecked-return-value"
+#]
+
+[printers]
+only = []
+#exclude = [
+#   "control-flow-graph",
+#   "imports-graph",
+#   "inheritance-graph",
+#   "inheritance-tree",
+#   "lsp-control-flow-graph",
+#   "lsp-inheritance-graph",
+#   "lsp-linearized-inheritance-graph",
+#   "lsp-selectors",
+#   "modifiers",
+#   "state-changes",
+#   "storage-layout",
+#   "tokens",
+#]

@@ -25,11 +25,11 @@ remappings = [
   "@harbor/=lib/harbor/src/",
   "@harbor-script/=lib/harbor/script/",
   "@harbor-test/=lib/harbor/test/",
-  "@bao/=lib/harbor/lib/bao-base/src/",
-  "@bao-test/=lib/harbor/lib/bao-base/test/",
-  "@bao-script/=lib/harbor/lib/bao-base/script/",
-  "@bao-factory/=lib/harbor/lib/bao-base/lib/bao-factory/src/",
-  "@bao-factory-test/=lib/harbor/lib/bao-base/lib/bao-factory/test/",
+  "@bao/=lib/bao-base/src/",
+  "@bao-test/=lib/bao-base/test/",
+  "@bao-script/=lib/bao-base/script/",
+  "@bao-factory/=lib/bao-base/lib/bao-factory/src/",
+  "@bao-factory-test/=lib/bao-base/lib/bao-factory/test/",
 ]
 
 fs_permissions = [{ access = "read", path = "./" }]
