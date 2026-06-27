@@ -3,7 +3,7 @@ pragma solidity 0.8.30;
 
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
-import {ReentrancyGuardTransientUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardTransientUpgradeable.sol";
+import {ReentrancyGuardTransient} from "@openzeppelin/contracts/utils/ReentrancyGuardTransient.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC4626} from "@openzeppelin/contracts/interfaces/IERC4626.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
@@ -25,7 +25,7 @@ import {ConfigFxSaveWstEthRoute_ETH_mainnet} from "@harbor-swap/config/ConfigFxS
 ///      matching `CurveSwapper_v1` behaviour for void-return and uint256-return pools.
 // slither-disable-next-line missing-inheritance — false positive: initialize(address,address) matches IHarborYieldEntryInit by coincidence
 contract FxSaveWstEthSwapper_v1 is// solhint-disable-line contract-name-capwords
- ISwapExecutor, HarborOwnableRoles, Initializable, UUPSUpgradeable, ReentrancyGuardTransientUpgradeable {
+ ISwapExecutor, HarborOwnableRoles, Initializable, UUPSUpgradeable, ReentrancyGuardTransient {
     using SafeERC20 for IERC20;
 
     error UnsupportedPair(address fromToken, address toToken);
@@ -51,8 +51,6 @@ contract FxSaveWstEthSwapper_v1 is// solhint-disable-line contract-name-capwords
     }
 
     function initialize(address deployerOwner_, address pendingOwner_) external initializer {
-        __UUPSUpgradeable_init();
-        __ReentrancyGuardTransient_init();
         _initializeOwner(deployerOwner_, pendingOwner_);
     }
 
@@ -88,6 +86,7 @@ contract FxSaveWstEthSwapper_v1 is// solhint-disable-line contract-name-capwords
         IERC20(_scrvUsdVault()).forceApprove(_scrvUsdVault(), vaultShares);
         uint256 crvUsdOut = IERC4626(_scrvUsdVault()).redeem(vaultShares, address(this), address(this));
         IERC20(_scrvUsdVault()).forceApprove(_scrvUsdVault(), 0);
+        // slither-disable-next-line incorrect-equality
         if (crvUsdOut == 0) {
             revert VaultRedeemFailed();
         }
@@ -116,6 +115,7 @@ contract FxSaveWstEthSwapper_v1 is// solhint-disable-line contract-name-capwords
         _curveExchange(_poolTricryptoLlama(), _pool1JWstEth(), _pool1ICrvUsd(), _wstEth(), amountIn, 0);
 
         uint256 crvUsdBal = IERC20(_crvUsd()).balanceOf(address(this));
+        // slither-disable-next-line incorrect-equality
         if (crvUsdBal == 0) {
             revert VaultDepositFailed();
         }
@@ -123,6 +123,7 @@ contract FxSaveWstEthSwapper_v1 is// solhint-disable-line contract-name-capwords
         IERC20(_crvUsd()).forceApprove(_scrvUsdVault(), crvUsdBal);
         uint256 vaultShares = IERC4626(_scrvUsdVault()).deposit(crvUsdBal, address(this));
         IERC20(_crvUsd()).forceApprove(_scrvUsdVault(), 0);
+        // slither-disable-next-line incorrect-equality
         if (vaultShares == 0) {
             revert VaultDepositFailed();
         }

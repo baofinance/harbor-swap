@@ -8,6 +8,7 @@ pragma solidity >=0.8.28 <0.9.0;
 ///         Harbor `distribute()` uses the reverse: fxSAVE → scrvUSD shares → redeem → wstETH.
 /// @dev Pool coin indices verified on-chain via `coins(uint256)` at deployment time.
 ///      Update this file and upgrade `FxSaveWstEthSwapper_v1` to change the route.
+// solhint-disable-next-line contract-name-capwords
 library ConfigFxSaveWstEthRoute_ETH_mainnet {
     /// @notice fxSAVE (f(x) USD saving token).
     address internal constant FXSAVE = 0x7743e50F534a7f9F1791DdE7dCD89F7783Eefc39;

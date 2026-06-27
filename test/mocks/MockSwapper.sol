@@ -44,7 +44,6 @@ contract MockSwapper is Initializable, UUPSUpgradeable, ISwapper, ISwapperConfig
 
     /// @notice Matches Swapper_v1.initialize signature so deploy scripts work unchanged with this mock.
     function initialize(address, address pendingOwner_) external initializer {
-        __UUPSUpgradeable_init();
         _owner = pendingOwner_;
         rate = 1 ether; // default 1:1
     }

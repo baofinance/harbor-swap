@@ -1,0 +1,94 @@
+src/swap/Swapper_v1.sol:Swapper_v1
+| function name     |       max |
+|-------------------|-----------|
+| ROUTE_SETTER_ROLE | 2.390e+02 |
+| getRoute          | 5.532e+03 |
+| getRoutesFrom     | 1.026e+04 |
+| grantRoles        | 2.633e+04 |
+| initialize        | 7.034e+04 |
+| setRoute          | 5.175e+04 |
+| swapExecutors     | 2.806e+03 |
+| swapFeeRatios     | 2.767e+03 |
+
+src/swap/aggregator/OneInchSwapper_v1.sol:OneInchSwapper_v1
+| function name   |       max |
+|-----------------|-----------|
+| ROUTER          | 3.040e+02 |
+| initialize      | 7.027e+04 |
+| swap            | 2.093e+05 |
+
+src/swap/executors/BalancerSwapper_v1.sol:BalancerSwapper_v1
+| function name     |       max |
+|-------------------|-----------|
+| ROUTE_SETTER_ROLE | 2.390e+02 |
+| VAULT             | 2.820e+02 |
+| grantRoles        | 2.636e+04 |
+| initialize        | 7.034e+04 |
+| poolIds           | 2.767e+03 |
+| setRoute          | 2.893e+04 |
+| swap              | 1.838e+05 |
+
+src/swap/executors/CurveSwapper_v1.sol:CurveSwapper_v1
+| function name     |       max |
+|-------------------|-----------|
+| ROUTE_SETTER_ROLE | 2.390e+02 |
+| grantRoles        | 2.633e+04 |
+| initialize        | 7.032e+04 |
+| routes            | 7.419e+03 |
+| setRoute          | 7.532e+04 |
+| swap              | 1.913e+05 |
+
+src/swap/executors/UniV3Swapper_v1.sol:UniV3Swapper_v1
+| function name    |       max |
+|------------------|-----------|
+| PATH_SETTER_ROLE | 2.830e+02 |
+| grantRoles       | 2.633e+04 |
+| initialize       | 7.030e+04 |
+| paths            | 9.986e+03 |
+| setPath          | 9.504e+04 |
+| swap             | 1.857e+05 |
+
+test/mocks/MockAggregationRouterV6.sol:MockAggregationRouterV6
+| function name       |       max |
+|---------------------|-----------|
+| setPartialFillRatio | 2.652e+04 |
+| setRate             | 2.650e+04 |
+| setReentrantCall    | 4.179e+05 |
+| setShouldRevert     | 4.366e+04 |
+| swapSelector        | 2.040e+02 |
+
+test/mocks/MockBalancerVault.sol:MockBalancerVault
+| function name    |       max |
+|------------------|-----------|
+| setRate          | 2.650e+04 |
+| setReentrantCall | 1.591e+05 |
+
+test/mocks/MockCurvePool.sol:MockCurvePool
+| function name    |       max |
+|------------------|-----------|
+| setCoin          | 4.428e+04 |
+| setRate          | 2.650e+04 |
+| setReentrantCall | 1.591e+05 |
+| setReturnVoid    | 4.369e+04 |
+| setShouldRevert  | 4.364e+04 |
+| setUnderlying    | 4.421e+04 |
+
+test/mocks/MockERC4626Vault.sol:MockERC4626Vault
+| function name   |       max |
+|-----------------|-----------|
+| allowance       | 2.777e+03 |
+| asset           | 3.240e+02 |
+| balanceOf       | 5.940e+02 |
+
+test/mocks/MockFxSaveScrvUsdPool.sol:MockFxSaveScrvUsdPool
+| function name    |       max |
+|------------------|-----------|
+| setRate          | 2.165e+04 |
+| setReentrantCall | 1.592e+05 |
+| setShouldRevert  | 4.366e+04 |
+
+test/mocks/MockUniV3Router.sol:MockUniV3Router
+| function name    |       max |
+|------------------|-----------|
+| setRate          | 2.650e+04 |
+| setReentrantCall | 1.592e+05 |

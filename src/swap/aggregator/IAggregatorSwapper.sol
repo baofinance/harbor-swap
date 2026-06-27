@@ -51,5 +51,6 @@ interface IAggregatorSwapper {
     ) external returns (uint256 amountOut);
 
     /// @notice The immutable router this adapter calls (e.g. 1inch AggregationRouterV6).
+    // solhint-disable-next-line func-name-mixedcase
     function ROUTER() external view returns (address);
 }

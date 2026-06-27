@@ -52,7 +52,6 @@ contract Swapper_v1 is// solhint-disable-line contract-name-capwords
     }
 
     function initialize(address deployerOwner_, address pendingOwner_) external initializer {
-        __UUPSUpgradeable_init();
         _initializeOwner(deployerOwner_, pendingOwner_);
     }
 

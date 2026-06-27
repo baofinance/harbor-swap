@@ -3,7 +3,7 @@ pragma solidity 0.8.30;
 
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
-import {ReentrancyGuardTransientUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardTransientUpgradeable.sol";
+import {ReentrancyGuardTransient} from "@openzeppelin/contracts/utils/ReentrancyGuardTransient.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
@@ -33,7 +33,7 @@ import {OneInchV6Selectors} from "@harbor-swap/aggregator/OneInchV6Selectors.sol
 /// @custom:oz-upgrades-unsafe-allow state-variable-immutable constructor
 // slither-disable-next-line missing-inheritance — false positive: initialize(address,address) ABI matches IHarborYieldEntryInit by coincidence; the two addresses are (deployerOwner, pendingOwner), not entry init args
 contract OneInchSwapper_v1 is// solhint-disable-line contract-name-capwords
- IAggregatorSwapper, HarborOwnableRoles, Initializable, UUPSUpgradeable, ReentrancyGuardTransientUpgradeable {
+ IAggregatorSwapper, HarborOwnableRoles, Initializable, UUPSUpgradeable, ReentrancyGuardTransient {
     using SafeERC20 for IERC20;
 
     /// @notice The fixed router this adapter calls. On most chains 1inch v6 lives at the
@@ -50,8 +50,6 @@ contract OneInchSwapper_v1 is// solhint-disable-line contract-name-capwords
     }
 
     function initialize(address deployerOwner_, address pendingOwner_) external initializer {
-        __UUPSUpgradeable_init();
-        __ReentrancyGuardTransient_init();
         _initializeOwner(deployerOwner_, pendingOwner_);
     }
 

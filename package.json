@@ -44,7 +44,7 @@
     "mermaid": "mmdc",
     "verify:stabilitypool": "./scripts/check-stabilitypool.sh"
   },
-  "prettier": "./lib/harbor/lib/bao-base/prettier.config.js",
+  "prettier": "./lib/bao-base/prettier.config.js",
   "dependencies": {
     "@mermaid-js/mermaid-cli": "^11.4.2",
     "@openzeppelin/upgrades-core": "^1.42.2",

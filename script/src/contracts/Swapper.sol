@@ -2,7 +2,7 @@
 pragma solidity >=0.8.28 <0.9.0;
 
 import {console2 as console} from "forge-std/console2.sol";
-import {HarborDeployer} from "@harbor-script/src/HarborDeployer.sol";
+import {Deployer} from "@bao-script/deployment/Deployer.sol";
 import {DeploymentTypes} from "@bao-script/deployment/DeploymentTypes.sol";
 
 import {Swapper_v1} from "@harbor-swap/Swapper_v1.sol";
@@ -37,7 +37,18 @@ import {ConfigBalancer} from "@harbor-swap-script/config/ConfigBalancer.sol";
 ///      Override _uniV3RouterAddress() in concrete deploy scripts and fork test setup
 ///      to supply the network-specific router. Unit tests that construct an ad-hoc mock
 ///      router/vault use the explicit-address overload: deployXxxSwapper(state, mockAddr).
-abstract contract Swapper is HarborDeployer, ConfigOneInch, ConfigBalancer {
+abstract contract Swapper is Deployer, ConfigOneInch, ConfigBalancer {
+    // this is duplicated from HarborDeployer
+    address private constant TREASURY_OWNER = 0x9bABfC1A1952a6ed2caC1922BFfE80c0506364a2;
+
+    function treasury() public view virtual override returns (address) {
+        return TREASURY_OWNER;
+    }
+
+    function owner() public view virtual override returns (address) {
+        return TREASURY_OWNER;
+    }
+
     // ─── Swapper_v1 (route registry) ────────────────────────────────────────
 
     /// @notice Deploy Swapper_v1 implementation only.
