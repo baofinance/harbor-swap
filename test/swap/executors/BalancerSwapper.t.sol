@@ -103,9 +103,7 @@ contract BalancerSwapperTest is BaoTest, Swapper {
         uint256 amountIn = 1 ether;
         _mintAndApprove(fromToken, balancerSwapperProxy, amountIn);
 
-        vm.expectRevert(
-            abi.encodeWithSelector(BalancerSwapper_v1.NoRouteConfigured.selector, fromToken, toToken)
-        );
+        vm.expectRevert(abi.encodeWithSelector(BalancerSwapper_v1.NoRouteConfigured.selector, fromToken, toToken));
         ISwapExecutor(balancerSwapperProxy).swap(fromToken, toToken, amountIn, 0);
     }
 

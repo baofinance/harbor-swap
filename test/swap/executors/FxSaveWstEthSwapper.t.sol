@@ -159,22 +159,23 @@ contract FxSaveWstEthSwapperTest is BaoTest, Swapper {
     }
 
     function deployFxSaveWstEthSwapperImplementation() internal override returns (address) {
-        return address(
-            new FxSaveWstEthSwapperHarness(
-                FxSaveWstEthSwapperHarness.RouteCfg({
-                    fxSave: fxSAVE,
-                    wstEth: wstETH,
-                    crvUsd: crvUSD,
-                    scrvUsdVault: scrvUsdVault,
-                    poolFxSaveScrvUsd: poolFxSaveScrvUsd,
-                    poolTricryptoLlama: poolTricryptoLlama,
-                    pool2IFxSave: POOL2_I,
-                    pool2JScrvUsd: POOL2_J,
-                    pool1ICrvUsd: POOL1_I,
-                    pool1JWstEth: POOL1_J
-                })
-            )
-        );
+        return
+            address(
+                new FxSaveWstEthSwapperHarness(
+                    FxSaveWstEthSwapperHarness.RouteCfg({
+                        fxSave: fxSAVE,
+                        wstEth: wstETH,
+                        crvUsd: crvUSD,
+                        scrvUsdVault: scrvUsdVault,
+                        poolFxSaveScrvUsd: poolFxSaveScrvUsd,
+                        poolTricryptoLlama: poolTricryptoLlama,
+                        pool2IFxSave: POOL2_I,
+                        pool2JScrvUsd: POOL2_J,
+                        pool1ICrvUsd: POOL1_I,
+                        pool1JWstEth: POOL1_J
+                    })
+                )
+            );
     }
 
     function _mintAndApprove(address token, address spender, uint256 amount) internal {

@@ -94,9 +94,8 @@ contract OneInchSwapper_v1 is// solhint-disable-line contract-name-capwords
         }
 
         uint256 fromBalanceAfter = IERC20(fromToken).balanceOf(address(this));
-        uint256 refundedIn = fromBalanceAfter > (fromBalanceBefore - amountIn)
-            ? fromBalanceAfter - (fromBalanceBefore - amountIn)
-            : 0;
+        uint256 refundedIn =
+            fromBalanceAfter > (fromBalanceBefore - amountIn) ? fromBalanceAfter - (fromBalanceBefore - amountIn) : 0;
         if (refundedIn > 0) {
             IERC20(fromToken).safeTransfer(msg.sender, refundedIn);
         }

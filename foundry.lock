@@ -1,8 +1,20 @@
 {
+  "lib/bao-base": {
+    "branch": {
+      "name": "main",
+      "rev": "71aea43b8a82c9d4091d61cbdd1bf50e6f6a7e92"
+    }
+  },
   "lib/forge-std": {
     "tag": {
       "name": "v1.16.1",
       "rev": "620536fa5277db4e3fd46772d5cbc1ea0696fb43"
+    }
+  },
+  "lib/harbor": {
+    "branch": {
+      "name": "harbor-yield",
+      "rev": "e5169bdd1c40f7ba9dc49657eb37098194ca7048"
     }
   },
   "lib/openzeppelin-contracts-upgradeable": {

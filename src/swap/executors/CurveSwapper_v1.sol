@@ -58,7 +58,14 @@ contract CurveSwapper_v1 is// solhint-disable-line contract-name-capwords
     error PoolCallFailed(bytes revertData);
     error InvalidRoute();
 
-    event RouteSet(address indexed fromToken, address indexed toToken, address indexed pool, int128 i, int128 j, bool useUnderlying);
+    event RouteSet(
+        address indexed fromToken,
+        address indexed toToken,
+        address indexed pool,
+        int128 i,
+        int128 j,
+        bool useUnderlying
+    );
 
     /*//////////////////////////////////////////////////////////////////////////
                                     STORAGE (ERC7201)
@@ -147,9 +154,22 @@ contract CurveSwapper_v1 is// solhint-disable-line contract-name-capwords
         // Curve `exchange*` signatures take (int128 i, int128 j, uint256 dx, uint256 min_dy).
         // We use a low-level call so the executor is agnostic to legacy void-return vs
         // newer uint256-return pools; amountOut is reconciled via balance delta below.
-        bytes memory callData = route.useUnderlying
-            ? abi.encodeWithSignature("exchange_underlying(int128,int128,uint256,uint256)", route.i, route.j, amountIn, minAmountOut)
-            : abi.encodeWithSignature("exchange(int128,int128,uint256,uint256)", route.i, route.j, amountIn, minAmountOut);
+        bytes memory callData =
+            route.useUnderlying
+                ? abi.encodeWithSignature(
+                    "exchange_underlying(int128,int128,uint256,uint256)",
+                    route.i,
+                    route.j,
+                    amountIn,
+                    minAmountOut
+                )
+                : abi.encodeWithSignature(
+                    "exchange(int128,int128,uint256,uint256)",
+                    route.i,
+                    route.j,
+                    amountIn,
+                    minAmountOut
+                );
 
         // solhint-disable-next-line avoid-low-level-calls
         (bool ok, bytes memory revertData) = route.pool.call(callData);

@@ -8,7 +8,7 @@ import {Swapper} from "@harbor-swap-script/contracts/Swapper.sol";
 /// @notice Shared swap-stack deployment helpers for standalone and HarborYield deploy scripts.
 /// @dev Always deploys Swapper_v1 + UniV3Swapper_v1. Curve, Balancer, and 1inch are optional
 ///      via SwapDeployOptions.
-abstract contract DeploySwapStack is Swapper {
+abstract contract HarborSwapDeployStack is Swapper {
     struct SwapDeployOptions {
         bool deployCurve;
         bool deployBalancer;

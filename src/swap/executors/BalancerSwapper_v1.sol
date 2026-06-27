@@ -123,11 +123,7 @@ contract BalancerSwapper_v1 is// solhint-disable-line contract-name-capwords
     }
 
     /// @notice Set the Balancer pool ID for a token pair. Pass bytes32(0) to clear.
-    function setRoute(
-        address fromToken,
-        address toToken,
-        bytes32 poolId
-    ) external onlyOwnerOrRoles(ROUTE_SETTER_ROLE) {
+    function setRoute(address fromToken, address toToken, bytes32 poolId) external onlyOwnerOrRoles(ROUTE_SETTER_ROLE) {
         _getBalancerSwapperStorage().poolIds[fromToken][toToken] = poolId;
         emit RouteSet(fromToken, toToken, poolId);
     }

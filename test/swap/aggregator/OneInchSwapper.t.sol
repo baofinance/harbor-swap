@@ -70,7 +70,9 @@ contract OneInchSwapperTest is BaoTest, Swapper {
         IERC20(token).approve(spender, amount);
     }
 
-    function _swapDescription(uint256 amountIn) internal view returns (MockAggregationRouterV6.SwapDescription memory desc) {
+    function _swapDescription(
+        uint256 amountIn
+    ) internal view returns (MockAggregationRouterV6.SwapDescription memory desc) {
         desc = MockAggregationRouterV6.SwapDescription({
             srcToken: fromToken,
             dstToken: toToken,
@@ -84,17 +86,24 @@ contract OneInchSwapperTest is BaoTest, Swapper {
 
     /// @notice ABI-encoded calldata with leading selector `OneInchV6Selectors.SWAP`.
     function _routerData(uint256 amountIn) internal view returns (bytes memory) {
-        return abi.encodeCall(
-            MockAggregationRouterV6.swap,
-            (address(0), _swapDescription(amountIn), abi.encode(fromToken, toToken, amountIn))
-        );
+        return
+            abi.encodeCall(
+                MockAggregationRouterV6.swap,
+                (address(0), _swapDescription(amountIn), abi.encode(fromToken, toToken, amountIn))
+            );
     }
 
     function test_swap_happyPath() public {
         uint256 amountIn = 1 ether;
         _mintAndApprove(fromToken, oneInchProxy, amountIn);
 
-        uint256 amountOut = IAggregatorSwapper(oneInchProxy).swap(fromToken, toToken, amountIn, 0, _routerData(amountIn));
+        uint256 amountOut = IAggregatorSwapper(oneInchProxy).swap(
+            fromToken,
+            toToken,
+            amountIn,
+            0,
+            _routerData(amountIn)
+        );
 
         assertEq(amountOut, amountIn, "Mock router default rate 1:1");
         assertEq(IERC20(toToken).balanceOf(address(this)), amountOut);
@@ -138,7 +147,9 @@ contract OneInchSwapperTest is BaoTest, Swapper {
 
         bytes memory badData = abi.encodePacked(bytes4(0xdeadbeef), _routerData(amountIn));
 
-        vm.expectRevert(abi.encodeWithSelector(IAggregatorSwapper.DisallowedRouterSelector.selector, bytes4(0xdeadbeef)));
+        vm.expectRevert(
+            abi.encodeWithSelector(IAggregatorSwapper.DisallowedRouterSelector.selector, bytes4(0xdeadbeef))
+        );
         IAggregatorSwapper(oneInchProxy).swap(fromToken, toToken, amountIn, 0, badData);
     }
 
@@ -153,7 +164,13 @@ contract OneInchSwapperTest is BaoTest, Swapper {
 
         vm.startPrank(alice);
         IERC20(fromToken).approve(oneInchProxy, amountIn);
-        uint256 amountOut = IAggregatorSwapper(oneInchProxy).swap(fromToken, toToken, amountIn, 0, _routerData(amountIn));
+        uint256 amountOut = IAggregatorSwapper(oneInchProxy).swap(
+            fromToken,
+            toToken,
+            amountIn,
+            0,
+            _routerData(amountIn)
+        );
         vm.stopPrank();
 
         assertEq(IERC20(fromToken).balanceOf(alice), 0);
@@ -165,9 +182,7 @@ contract OneInchSwapperTest is BaoTest, Swapper {
         uint256 amountIn = 1 ether;
         _mintAndApprove(fromToken, oneInchProxy, amountIn);
 
-        vm.expectRevert(
-            abi.encodeWithSelector(IAggregatorSwapper.InsufficientAmountOut.selector, 0.5 ether, 1 ether)
-        );
+        vm.expectRevert(abi.encodeWithSelector(IAggregatorSwapper.InsufficientAmountOut.selector, 0.5 ether, 1 ether));
         IAggregatorSwapper(oneInchProxy).swap(fromToken, toToken, amountIn, 1 ether, _routerData(amountIn));
     }
 
@@ -200,8 +215,13 @@ contract OneInchSwapperTest is BaoTest, Swapper {
         uint256 amountIn = 1 ether;
         _mintAndApprove(fromToken, oneInchProxy, amountIn);
 
-        uint256 amountOut =
-            IAggregatorSwapper(oneInchProxy).swap(fromToken, toToken, amountIn, 0, _routerData(amountIn));
+        uint256 amountOut = IAggregatorSwapper(oneInchProxy).swap(
+            fromToken,
+            toToken,
+            amountIn,
+            0,
+            _routerData(amountIn)
+        );
 
         assertEq(amountOut, 0.6 ether);
         assertEq(IERC20(toToken).balanceOf(address(this)), 0.6 ether);

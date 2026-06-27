@@ -136,9 +136,7 @@ contract CurveSwapperTest is BaoTest, Swapper {
         uint256 amountIn = 1 ether;
         _mintAndApprove(fromToken, curveSwapperProxy, amountIn);
 
-        vm.expectRevert(
-            abi.encodeWithSelector(CurveSwapper_v1.NoRouteConfigured.selector, fromToken, toToken)
-        );
+        vm.expectRevert(abi.encodeWithSelector(CurveSwapper_v1.NoRouteConfigured.selector, fromToken, toToken));
         ISwapExecutor(curveSwapperProxy).swap(fromToken, toToken, amountIn, 0);
     }
 

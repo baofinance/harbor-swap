@@ -155,8 +155,13 @@ contract FxSaveWstEthSwapper_v1 is// solhint-disable-line contract-name-capwords
         uint256 minDy
     ) private {
         IERC20(tokenIn).forceApprove(pool, amountIn);
-        bytes memory callData =
-            abi.encodeWithSignature("exchange(int128,int128,uint256,uint256)", i, j, amountIn, minDy);
+        bytes memory callData = abi.encodeWithSignature(
+            "exchange(int128,int128,uint256,uint256)",
+            i,
+            j,
+            amountIn,
+            minDy
+        );
         // solhint-disable-next-line avoid-low-level-calls
         (bool ok, bytes memory revertData) = pool.call(callData);
         IERC20(tokenIn).forceApprove(pool, 0);

@@ -170,7 +170,7 @@ Curve has **no canonical router** — each pair points at a specific pool contra
 
 ## 3. Deploy order (Phase 2a — via BaoFactory)
 
-Swap deployment is orchestrated by [`DeploySwapStack`](src/DeploySwapStack.sol) (`deploySwapStack`).
+Swap deployment is orchestrated by [`HarborSwapDeployStack`](src/HarborSwapDeployStack.sol) (`deploySwapStack`).
 
 | Script | When | What it deploys |
 |--------|------|-----------------|
@@ -509,7 +509,7 @@ proxy in isolation in tests), ensure `minAmountOut` respects HY's oracle floor.
 | [baofinance/harbor](https://github.com/baofinance/harbor) | Phase 1a — Minter, SP, SPM; `HarborDeployer`, BaoFactory |
 | [baofinance/harbor-price-aggregators](https://github.com/baofinance/harbor-price-aggregators) | Phase 1b — oracles via BaoFactory |
 | [`script/src/contracts/Swapper.sol`](src/contracts/Swapper.sol) | BaoFactory deploy for all swap proxies |
-| [`script/src/DeploySwapStack.sol`](src/DeploySwapStack.sol) | `SwapDeployOptions`, `deploySwapStack` |
+| [`script/src/HarborSwapDeployStack.sol`](src/HarborSwapDeployStack.sol) | `SwapDeployOptions`, `deploySwapStack` |
 | [`script/src/Deploy_Swap.sol`](src/Deploy_Swap.sol) | Standalone full swap stack deploy |
 | [`script/Deploy_Swap.s.sol`](../Deploy_Swap.s.sol) | Runnable forge script for swap-only deploy |
 | [`src/swap/README.md`](../src/swap/README.md) | Architecture + threat model |

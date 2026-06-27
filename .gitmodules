@@ -17,3 +17,7 @@
 	path = lib/harbor
 	url = https://github.com/baofinance/harbor.git
 	branch = harbor-yield
+[submodule "lib/bao-base"]
+	path = lib/bao-base
+	url = https://github.com/baofinance/bao-base
+	branch = main
