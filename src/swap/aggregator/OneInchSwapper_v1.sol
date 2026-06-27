@@ -54,10 +54,9 @@ contract OneInchSwapper_v1 is// solhint-disable-line contract-name-capwords
     }
 
     /// @inheritdoc IAggregatorSwapper
-    // slither-disable-next-line low-level-calls,reentrancy-events — low-level call to the
-    // immutable router is intentional (calldata is keeper-built and intentionally opaque).
-    // Reentrancy is blocked by nonReentrant, and the event is emitted after the external
-    // call has fully unwound and balances have been reconciled.
+    // Low-level call to the immutable router is intentional (calldata is keeper-built and
+    // intentionally opaque). Reentrancy is blocked by nonReentrant, and the event is emitted
+    // after the external call has fully unwound and balances have been reconciled.
     function swap(
         address fromToken,
         address toToken,
@@ -79,8 +78,8 @@ contract OneInchSwapper_v1 is// solhint-disable-line contract-name-capwords
         _validateRouterData(routerData);
 
         IERC20(fromToken).forceApprove(ROUTER, amountIn);
-        // solhint-disable-next-line avoid-low-level-calls
-        (bool ok, bytes memory revertData) = ROUTER.call(routerData);
+        // slither-disable-next-line low-level-calls
+        (bool ok, bytes memory revertData) = ROUTER.call(routerData); // solhint-disable-line avoid-low-level-calls
         IERC20(fromToken).forceApprove(ROUTER, 0);
         if (!ok) {
             revert RouterCallFailed(revertData);

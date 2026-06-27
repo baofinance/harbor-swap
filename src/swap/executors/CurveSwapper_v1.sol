@@ -169,8 +169,8 @@ contract CurveSwapper_v1 is// solhint-disable-line contract-name-capwords
                     minAmountOut
                 );
 
-        // solhint-disable-next-line avoid-low-level-calls
-        (bool ok, bytes memory revertData) = route.pool.call(callData);
+        // slither-disable-next-line low-level-calls
+        (bool ok, bytes memory revertData) = route.pool.call(callData); // solhint-disable-line avoid-low-level-calls
 
         IERC20(fromToken).forceApprove(route.pool, 0);
 

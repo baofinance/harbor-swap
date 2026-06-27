@@ -163,8 +163,8 @@ contract FxSaveWstEthSwapper_v1 is// solhint-disable-line contract-name-capwords
             amountIn,
             minDy
         );
-        // solhint-disable-next-line avoid-low-level-calls
-        (bool ok, bytes memory revertData) = pool.call(callData);
+        // slither-disable-next-line low-level-calls
+        (bool ok, bytes memory revertData) = pool.call(callData); // solhint-disable-line avoid-low-level-calls
         IERC20(tokenIn).forceApprove(pool, 0);
         if (!ok) {
             revert PoolCallFailed(revertData);
