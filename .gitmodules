@@ -13,10 +13,6 @@
 [submodule "lib/v3-core"]
 	path = lib/v3-core
 	url = https://github.com/Uniswap/v3-core
-[submodule "lib/harbor"]
-	path = lib/harbor
-	url = https://github.com/baofinance/harbor.git
-	branch = harbor-yield
 [submodule "lib/bao-base"]
 	path = lib/bao-base
 	url = https://github.com/baofinance/bao-base
