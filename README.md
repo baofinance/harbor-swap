@@ -27,8 +27,8 @@ accepted (`OneInchV6Selectors.SWAP`). Build via 1inch Swap API / Pathfinder.
 
 - `FxSaveWstEthSwapper_v1` intermediate Curve legs use `min_dy = 0`; only final wstETH
   output is bounded by the consumer's `minAmountOut`. Route changes require impl upgrade.
-- `OneInchSwapper_v1` is open-access; authorization lives on the consumer's
-  `executeAggregatorSwap` role gate. Selector allowlist does not validate swap parameters.
+- `OneInchSwapper_v1` is open-access; authorization lives on the consumer's `redistribute`
+  `REDISTRIBUTOR_ROLE` gate. Selector allowlist does not validate swap parameters.
 
 ## License
 

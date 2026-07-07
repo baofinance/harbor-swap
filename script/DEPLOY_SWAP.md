@@ -20,7 +20,7 @@ deployed with `new` in-script; UUPS proxies are always factory-deployed at deter
 | [baofinance/harbor-price-aggregators](https://github.com/baofinance/harbor-price-aggregators) | Phase 1b — oracles at CREATE3 addresses |
 | **Harbor Yield consumer repo** (separate) | `HarborYield_v1`, ACs, equiv vaults; imports `@harbor-swap/`; fork integration tests |
 
-Harbor Yield wiring (`_configureSwapRoutes`, `setAggregatorSwapper`, `executeAggregatorSwap`)
+Harbor Yield wiring (`_configureSwapRoutes` and keeper `REDISTRIBUTOR_ROLE` grants)
 lives in the consumer repo. This runbook covers swap-stack deploy and route configuration;
 §5 describes how the consumer connects the aggregator adapter.
 
@@ -37,7 +37,7 @@ Swap deployment is **Phase 2a** of the Harbor stack. It assumes Phase 1 is alrea
 | **1a** | [baofinance/harbor](https://github.com/baofinance/harbor) | `Minter_v3`, `StabilityPool_v3`, `StabilityPoolManager_v2` — AC compound + `distribute()` source |
 | **1b** | [baofinance/harbor-price-aggregators](https://github.com/baofinance/harbor-price-aggregators) | `IWrappedPriceOracle` impls at CREATE3 addresses (e.g. `Aggregator_stETH_ETH_mainnet` for wstETH equiv vault) |
 | **2a** | **harbor-swap** (this repo) | `Swapper_v1`, executors, aggregator adapter |
-| **2b** | Harbor Yield consumer repo | `HarborYield_v1`, ACs, equiv adapters; registry wiring + aggregator role grants |
+| **2b** | Harbor Yield consumer repo | `HarborYield_v1`, ACs, equiv adapters; registry wiring + keeper `REDISTRIBUTOR_ROLE` grants |
 
 Phase 1a and 1b are independent of each other; **both must complete before Phase 2**.
 
@@ -132,11 +132,11 @@ repo.
 | Scenario | Path | Entrypoint | When |
 |----------|------|------------|------|
 | **Urgent / peg-critical** | Direct executor | `HarborYield_v1.distribute()` → `ISwapExecutor.swap` | Residual wCOLn routing during AC distribution; must be predictable gas, no off-chain router dependency |
-| **Low-urgency / long-tail** | Aggregator (1inch v6) | `HarborYield_v1.executeAggregatorSwap` | Scheduled rebalances, illiquid pairs, multi-pool Curve/Balancer chains, exotic venues |
+| **Low-urgency / long-tail** | Aggregator (1inch v6) | `HarborYield_v1.redistribute` | Scheduled rebalances, illiquid pairs, multi-pool Curve/Balancer chains, exotic venues |
 
 **Rule:** `distribute()` never calls the aggregator. Untrusted keeper calldata stays out of
-the hot path. After an aggregator swap, output tokens sit in HY's idle balance until the
-next `distribute()` deposits them into the appropriate managed vault.
+the hot path. `redistribute` unwinds source-vault shares, swaps through the keeper's aggregator, and winds the
+proceeds straight into the target vault in one atomic call — no idle balance sits at HY between steps.
 
 ---
 
@@ -324,56 +324,60 @@ individual routes.
 
 ## 5. Aggregator wiring (consumer repo, post-deploy)
 
-The aggregator **does not** register in `Swapper_v1`. The Harbor Yield consumer connects it
-directly to each HY instance.
+The aggregator **does not** register in `Swapper_v1`, and it is **not stored on HY**. The Harbor Yield
+consumer reaches it only through `HarborYield_v1.redistribute`, which takes the adapter address and the
+keeper's `routerData` as call parameters.
 
 ```solidity
 // 1. Deploy adapter (once per network, shared across pegs) — harbor-swap:
 deployOneInchSwapper(state);
 address oneInch = _predictAddress("oneInchSwapper");
 
-// 2. Point HY at the adapter (per HY peg instance) — consumer repo:
-IHarborYield(hy).setAggregatorSwapper(oneInch);
-
-// 3. Grant keeper role (per HY) — consumer repo:
-HarborYield_v1(hy).grantRoles(keeperAddress, HarborYield_v1(hy).AGGREGATOR_ROLE());
+// 2. Grant keeper role (per HY peg instance) — consumer repo:
+HarborYield_v1(hy).grantRoles(keeperAddress, HarborYield_v1(hy).REDISTRIBUTOR_ROLE());
 ```
 
-**Authorization model (intentional tradeoff):** `OneInchSwapper_v1.swap` is open-access — it
-only spends `msg.sender`'s pre-approved balance. The role gate (`AGGREGATOR_ROLE`) lives on
-`HarborYield_v1.executeAggregatorSwap`, not on the adapter.
+There is no `setAggregatorSwapper` step — HY holds no aggregator address. The keeper passes the adapter (e.g.
+the predicted `oneInch` address) on each `redistribute` call, so multiple third-party adapters can coexist
+without any HY change.
 
-**Keeper call:**
+**Authorization model (intentional tradeoff):** `OneInchSwapper_v1.swap` is open-access — it only spends
+`msg.sender`'s pre-approved balance. The role gate (`REDISTRIBUTOR_ROLE`) lives on `HarborYield_v1.redistribute`,
+not on the adapter.
+
+**Keeper call:** the keeper names the tokens, the adapter, and the route on a single `redistribute` call (see
+the Harbor Yield keeper runbook for the full off-chain workflow):
 
 ```solidity
-HarborYield_v1(hy).executeAggregatorSwap(
-    fromToken,
-    toToken,
-    amountIn,
-    minAmountOut,
-    routerData   // opaque 1inch v6 calldata from off-chain pathfinder
+HarborYield_v1(hy).redistribute(
+    fromVault, fromToken, toVault, toToken,
+    shares,        // source-vault shares to move (HY unwinds them to fromToken)
+    minToAssets,   // floor on the target landing — the strict-vs-partial lever
+    oneInch,       // the aggregator adapter for the swap leg
+    routerData     // opaque 1inch v6 calldata from off-chain pathfinder
 );
 ```
 
 Requirements:
 
-- HY must hold `amountIn` of `fromToken` as idle balance (not locked in a vault).
-- `routerData` must target the immutable router baked into `OneInchSwapper_v1` (`0x1111…2A65`
-  on production). Building calldata is an off-chain concern (1inch Swap API / Pathfinder).
-- **Allowed calldata (Option A):** first four bytes must be `OneInchV6Selectors.SWAP`
-  (`0x07ed2379`, `swap(address,tuple,bytes)`). Other v6 entrypoints (`unoswap`, `clipperSwap`,
-  `fillOrder`, …) revert with `DisallowedRouterSelector`. Expand the allowlist in
-  [`OneInchV6Selectors.sol`](../src/swap/aggregator/OneInchV6Selectors.sol) only after ops
-  confirms keeper usage.
-- Set `minAmountOut` conservatively; slippage is enforced both inside 1inch calldata and by
-  the adapter's balance-delta check.
-- `AGGREGATOR_ROLE` remains high-trust: whitelisting blocks wrong router *functions*, not bad
-  parameters inside an allowed `swap` call.
-- Disable aggregator: `setAggregatorSwapper(address(0))`.
+- HY sources the swap input by unwinding `shares` of `fromVault` down to `fromToken` inside the call — it needs
+  no idle balance.
+- `routerData` must target the immutable router baked into `OneInchSwapper_v1` (`0x1111…2A65` on production).
+  Building calldata is an off-chain concern (1inch Swap API / Pathfinder).
+- **Allowed calldata (Option A):** first four bytes must be `OneInchV6Selectors.SWAP` (`0x07ed2379`,
+  `swap(address,tuple,bytes)`). Other v6 entrypoints (`unoswap`, `clipperSwap`, `fillOrder`, …) revert with
+  `DisallowedRouterSelector`. Expand the allowlist in
+  [`OneInchV6Selectors.sol`](../src/swap/aggregator/OneInchV6Selectors.sol) only after ops confirms keeper usage.
+- Slippage is bounded by `redistribute`'s end-to-end value floor (`minToAssets` plus the vault's `swapSlippage`);
+  HY passes `minAmountOut = 0` to the adapter because the floor is the real guard. A malicious or wrong route
+  can't drain HY — the atomic call reverts if the landed value misses the floor.
+- Disable the aggregator path for a keeper by revoking `REDISTRIBUTOR_ROLE`; there is no on-chain aggregator
+  switch to flip.
 
-**Upgrading `OneInchSwapper_v1`:** deploy new implementation via `Swapper.sol`, UUPS-upgrade
-the existing `oneInchSwapper` proxy (or deploy a new proxy and point HY at it). The router
-immutable is fixed at implementation construction time.
+**Upgrading `OneInchSwapper_v1`:** deploy a new implementation via `Swapper.sol` and UUPS-upgrade the existing
+`oneInchSwapper` proxy (the router immutable is fixed at implementation construction time). Because the keeper
+names the adapter per call, a new adapter at a different address simply becomes another address the keeper can
+pass — no HY change.
 
 ---
 
@@ -441,7 +445,7 @@ only `poolId` is stored. Ensure the pool actually contains both tokens.
 | `UniV3Swapper_v1` | `PATH_SETTER_ROLE` | Ops setting encoded paths |
 | `CurveSwapper_v1` | `ROUTE_SETTER_ROLE` | Ops setting pool + indices |
 | `BalancerSwapper_v1` | `ROUTE_SETTER_ROLE` | Ops setting poolId |
-| `HarborYield_v1` | `AGGREGATOR_ROLE` | Keeper / bot calling `executeAggregatorSwap` (consumer repo) |
+| `HarborYield_v1` | `REDISTRIBUTOR_ROLE` | Keeper / bot calling `redistribute` (consumer repo) |
 
 Owner on each contract can always perform setters and upgrades (UUPS). After deployment,
 ownership transfers to the Safe — route changes become Safe transactions (or role grants to
@@ -449,8 +453,8 @@ an ops multisig).
 
 **Security reminders:**
 
-- Never grant `AGGREGATOR_ROLE` to an EOA that builds its own 1inch calldata without review;
-  compromised calldata can drain HY's approved balance for that transaction.
+- `REDISTRIBUTOR_ROLE` is high-trust, but `redistribute`'s atomic end-to-end value floor bounds any loss to the
+  vault's `swapSlippage`: a compromised keeper cannot drain HY — a route that fails to deliver reverts the call.
 - Compromise of `ROUTE_SETTER_ROLE` on `Swapper_v1` redirects pairs to a malicious executor
   — executors only act on tokens HY explicitly approves per swap, but still treat as critical.
 - Curve pool addresses come from governance storage; verify pool contract on Etherscan before
@@ -491,8 +495,7 @@ BalancerSwapper_v1(bal).poolIds(from, to) != bytes32(0);
 // FxSaveWstEthSwapper: verify on mainnet fork in consumer repo
 
 // Aggregator (consumer repo)
-HarborYield_v1(hy).aggregatorSwapper() == oneInchProxy;
-HarborYield_v1(hy).hasAnyRole(keeper, AGGREGATOR_ROLE);
+HarborYield_v1(hy).hasAnyRole(keeper, HarborYield_v1(hy).REDISTRIBUTOR_ROLE());
 OneInchSwapper_v1(oneInch).ROUTER() == 0x111111125421cA6dc452d289314280a0f8842A65;
 ```
 

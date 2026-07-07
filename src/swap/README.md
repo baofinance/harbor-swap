@@ -71,20 +71,22 @@ Properties:
 ### 2. Aggregator (low-urgency)
 
 For long-tail routes, multi-hop graphs, and slow rebalances `aggregator/OneInchSwapper_v1`
-accepts opaque `bytes` calldata built off-chain by a keeper. It is exposed via
-`HarborYield_v1.executeAggregatorSwap` (role-gated to `AGGREGATOR_ROLE`) and never invoked
-from the `distribute()` loop, so untrusted calldata never enters peg-critical code paths.
+accepts opaque `bytes` calldata built off-chain by a keeper. It is reached **only** as the swap edge of
+`HarborYield_v1.redistribute` — the keeper passes the adapter address and its `routerData` as call
+parameters — and is never invoked from the `distribute()` loop, so untrusted calldata never enters
+peg-critical code paths.
 
 Flow:
 
-1. Keeper builds router calldata off-chain (1inch API / pathfinder) and submits via HY.
-2. HY pulls `amountIn` from its idle balance, approves `OneInchSwapper_v1` for exactly
-   `amountIn`, and forwards the call.
+1. Keeper builds router calldata off-chain (1inch API / pathfinder) and calls `redistribute`, naming the
+   adapter address and supplying `routerData`.
+2. HY unwinds `shares` of the source vault down to the `fromToken`, approves the named adapter for exactly
+   that amount, and forwards the swap.
 3. `OneInchSwapper_v1` pulls the input, approves its immutable router (1inch v6), invokes
    `router.call(routerData)`, resets the router allowance to zero, then verifies output
    via `balanceOf(toToken)` delta against `minAmountOut`.
-4. Any unspent `fromToken` (1inch `_PARTIAL_FILL` flag) is refunded; remaining proceeds
-   land back in HY for the next `distribute()` to deposit.
+4. Any unspent `fromToken` (1inch `_PARTIAL_FILL` flag) is refunded to HY, which re-winds it into the source
+   vault; the swapped proceeds are wound into the target vault, bounded by HY's end-to-end value floor.
 
 Properties:
 
@@ -97,7 +99,7 @@ Properties:
 - Two-stage approve / call / zero approval flow at both HY and adapter layers.
 - Slippage enforced twice: by the router's own minReturn inside the calldata and by the
   adapter's post-call balance-delta check against `minAmountOut`.
-- Role gate (`AGGREGATOR_ROLE`) lives on `HarborYield_v1`; the adapter itself is open
+- Role gate (`REDISTRIBUTOR_ROLE`) lives on `HarborYield_v1.redistribute`; the adapter itself is open
   because it only ever spends `msg.sender`'s pre-approved balance.
 
 ### HarborYield routing (hyETH example)
@@ -110,9 +112,9 @@ When a collateral AutoCompounder calls `HarborYield_v1.distribute()` with fxSAVE
    registered in `Swapper_v1` (production ETH: `FxSaveWstEthSwapper_v1`) and deposited into
    the wstETH equivalent vault.
 
-`distribute()` **never** calls the 1inch aggregator. Keepers use
-`executeAggregatorSwap` separately for discretionary rebalances, idle balances, or routes
-that are not registered in `Swapper_v1`.
+`distribute()` **never** calls the 1inch aggregator. Keepers reach it only through `redistribute` for
+discretionary rebalances or routes not registered in `Swapper_v1`, naming the adapter and supplying its
+`routerData` per call.
 
 ## Monitoring and config events
 
@@ -186,8 +188,8 @@ Aggregator (`OneInchSwapper_v1`):
   for tests / future routers). Caller supplies opaque calldata; recipient and amounts are
   encoded in that calldata. The adapter enforces **selector allowlist** (Option A: only
   `OneInchV6Selectors.SWAP`), slippage by balance delta, and resets the router allowance to
-  zero. It does **not** decode swap parameters inside allowed calldata — the call site must
-  hold `AGGREGATOR_ROLE` on `HarborYield_v1` and provide vetted keeper-built routes.
+  zero. It does **not** decode swap parameters inside allowed calldata — the call site
+  (`HarborYield_v1.redistribute`, gated by `REDISTRIBUTOR_ROLE`) provides vetted keeper-built routes.
 - Unspent `fromToken` after a partial fill is refunded to `msg.sender` (HY), so no input
   can accrue inside the adapter between calls.
 - The adapter is open-access (no role gate on `swap`) because it operates purely on
@@ -233,10 +235,10 @@ wiring per pair:
    `ISwapperConfig.setRoute(from, to, executorProxy, feeRatio)` so `Swapper_v1` knows
    which executor to dispatch to for that pair.
 
-Aggregator wiring follows the same pattern but bypasses the registry: call
-`deployOneInchSwapper(state)`, then `IHarborYield.setAggregatorSwapper(swapper)` to point
-HY at it, and finally `grantRoles(keeper, HarborYield_v1.AGGREGATOR_ROLE())` for each
-keeper allowed to trigger `executeAggregatorSwap`.
+Aggregator wiring bypasses the registry and is not stored on HY: call `deployOneInchSwapper(state)` to deploy
+the adapter at its predicted CREATE3 address, then `grantRoles(keeper, HarborYield_v1.REDISTRIBUTOR_ROLE())`
+for each keeper allowed to call `redistribute`. The keeper names the adapter address per call — there is no
+`setAggregatorSwapper` and no stored aggregator on HY.
 
 **Deploy runbook:** step-by-step wiring, mainnet pool caveats, role grants, and verification
 checklist live in [`script/DEPLOY_SWAP.md`](../../script/DEPLOY_SWAP.md).
@@ -254,5 +256,5 @@ integration (full ETH stack + oracle mocks) lives in the Harbor Yield consumer r
 
 - `FxSaveWstEthSwapper_v1` intermediate Curve legs use `min_dy = 0`; only final wstETH
   output is bounded by the consumer's `minAmountOut`.
-- `OneInchSwapper_v1` is open-access; authorization lives on the consumer's
-  `executeAggregatorSwap` role gate.
+- `OneInchSwapper_v1` is open-access; authorization lives on the consumer's `redistribute`
+  `REDISTRIBUTOR_ROLE` gate.
