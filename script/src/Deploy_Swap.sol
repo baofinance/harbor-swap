@@ -35,7 +35,7 @@ abstract contract Deploy_Swap is HarborSwapDeployStack, ConfigSwap_ETH_mainnet {
         flush("", "transfer swap ownership");
         _transferAllOwnerships();
         _saveState(state);
-        _executeLocal();
+        _executeQueued();
 
         console.log("=== Swap Stack Deployment Done ===");
     }
