@@ -23,20 +23,6 @@ abstract contract HarborSwapDeployStack is Swapper {
         opts = SwapDeployOptions({deployCurve: true, deployBalancer: true, deployOneInch: true});
     }
 
-    function _newSwapperState(
-        string memory saltPrefix,
-        string memory network
-    ) internal view returns (DeploymentTypes.State memory state) {
-        state = DeploymentTypes.State({
-            network: network,
-            saltPrefix: saltPrefix,
-            directoryPrefix: "",
-            implementations: new DeploymentTypes.ImplementationRecord[](0),
-            proxies: new DeploymentTypes.ProxyRecord[](0),
-            baoFactory: baoFactory()
-        });
-    }
-
     /// @notice Deploy swap infrastructure according to opts. Caller must have set salt prefix.
     function deploySwapStack(DeploymentTypes.State memory state, SwapDeployOptions memory opts) internal {
         console.log("--- Deploying Swap Stack ---");

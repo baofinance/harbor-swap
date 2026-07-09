@@ -7,6 +7,7 @@ pragma solidity >=0.8.28 <0.9.0;
 
 import {BaoTest} from "@bao-test/BaoTest.sol";
 import {DeploymentTypes} from "@bao-script/deployment/DeploymentTypes.sol";
+import {DeploymentState} from "@bao-script/deployment/DeploymentState.sol";
 
 import {MockERC20} from "@bao-test/mocks/MockERC20.sol";
 
@@ -22,9 +23,6 @@ contract SwapperTest is BaoTest, Swapper {
     }
     function treasury() public view override returns (address) {
         return address(this);
-    }
-    function _shouldPersistState() internal pure override returns (bool) {
-        return false;
     }
     function _uniV3RouterAddress() internal pure override returns (address) {
         return address(0); // UniV3 executor not used in Swapper registry tests
@@ -58,14 +56,8 @@ contract SwapperTest is BaoTest, Swapper {
 
         mockExecutor = makeAddr("mockExecutor");
 
-        DeploymentTypes.State memory state = DeploymentTypes.State({
-            network: "test",
-            saltPrefix: SALT_PREFIX,
-            directoryPrefix: "",
-            implementations: new DeploymentTypes.ImplementationRecord[](0),
-            proxies: new DeploymentTypes.ProxyRecord[](0),
-            baoFactory: baoFactory()
-        });
+        DeploymentTypes.State memory state = DeploymentState.fresh(SALT_PREFIX, "test");
+        state.baoFactory = baoFactory();
         deploySwapper(state);
         swapperProxy = _predictAddress("swapper");
     }

@@ -8,6 +8,7 @@ pragma solidity >=0.8.28 <0.9.0;
 import {BaoTest} from "@bao-test/BaoTest.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {DeploymentTypes} from "@bao-script/deployment/DeploymentTypes.sol";
+import {DeploymentState} from "@bao-script/deployment/DeploymentState.sol";
 
 import {MockERC20} from "@bao-test/mocks/MockERC20.sol";
 import {MockBalancerVault} from "@harbor-swap-test-mocks/MockBalancerVault.sol";
@@ -23,9 +24,6 @@ contract BalancerSwapperTest is BaoTest, Swapper {
     }
     function treasury() public view override returns (address) {
         return address(this);
-    }
-    function _shouldPersistState() internal pure override returns (bool) {
-        return false;
     }
     function _uniV3RouterAddress() internal pure override returns (address) {
         return address(0);
@@ -55,14 +53,8 @@ contract BalancerSwapperTest is BaoTest, Swapper {
 
         vault = address(new MockBalancerVault());
 
-        DeploymentTypes.State memory state = DeploymentTypes.State({
-            network: "test",
-            saltPrefix: SALT_PREFIX,
-            directoryPrefix: "",
-            implementations: new DeploymentTypes.ImplementationRecord[](0),
-            proxies: new DeploymentTypes.ProxyRecord[](0),
-            baoFactory: baoFactory()
-        });
+        DeploymentTypes.State memory state = DeploymentState.fresh(SALT_PREFIX, "test");
+        state.baoFactory = baoFactory();
         deployBalancerSwapper(state, vault);
         balancerSwapperProxy = _predictAddress("balancerSwapper");
     }

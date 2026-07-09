@@ -25,7 +25,7 @@ abstract contract Deploy_Swap is HarborSwapDeployStack, ConfigSwap_ETH_mainnet {
         console.log("  Network: %s", network);
 
         DeploymentTypes.State memory state =
-            _shouldPersistState() ? DeploymentState.load(_stateFileRead()) : _newSwapperState(saltPrefix, network);
+            _shouldPersistState() ? DeploymentState.load(_stateFileRead()) : DeploymentState.fresh(saltPrefix, network);
         state.baoFactory = baoFactory();
 
         deploySwapStack(state, _fullSwapDeployOptions());
