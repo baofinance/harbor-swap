@@ -276,6 +276,44 @@ contract FxSaveWstEthSwapperTest is BaoTest, Swapper {
         assertEq(IERC20(fxSAVE).balanceOf(alice), amountOut);
     }
 
+    /// @notice A donated scrvUSD-share balance is not swept into the caller's output: the
+    ///         forward route consumes only the shares its own leg produced, leaving the
+    ///         donation in the swapper.
+    function test_swap_fxSaveToWstEth_ignoresDonatedIntermediate() public {
+        uint256 amountIn = 1 ether;
+        uint256 donation = 0.5 ether;
+
+        // Seed the swapper with scrvUSD vault shares by depositing crvUSD to its address.
+        MockERC20(crvUSD).mint(address(this), donation);
+        IERC20(crvUSD).approve(scrvUsdVault, donation);
+        IERC4626(scrvUsdVault).deposit(donation, swapperProxy);
+        assertEq(IERC20(scrvUsdVault).balanceOf(swapperProxy), donation, "donation seeded");
+
+        _mintAndApprove(fxSAVE, swapperProxy, amountIn);
+        uint256 amountOut = ISwapExecutor(swapperProxy).swap(fxSAVE, wstETH, amountIn, 0);
+
+        // At 1:1 mock rates only the leg's own 1 ether flows through; the donation stays put.
+        assertEq(amountOut, amountIn, "donation not swept into output");
+        assertEq(IERC20(scrvUsdVault).balanceOf(swapperProxy), donation, "donation untouched");
+    }
+
+    /// @notice A donated crvUSD balance is not swept into the caller's output: the reverse
+    ///         route deposits only the crvUSD its own leg produced, leaving the donation in
+    ///         the swapper.
+    function test_swap_wstEthToFxSave_ignoresDonatedIntermediate() public {
+        uint256 amountIn = 1 ether;
+        uint256 donation = 0.5 ether;
+
+        MockERC20(crvUSD).mint(swapperProxy, donation);
+        assertEq(IERC20(crvUSD).balanceOf(swapperProxy), donation, "donation seeded");
+
+        _mintAndApprove(wstETH, swapperProxy, amountIn);
+        uint256 amountOut = ISwapExecutor(swapperProxy).swap(wstETH, fxSAVE, amountIn, 0);
+
+        assertEq(amountOut, amountIn, "donation not swept into output");
+        assertEq(IERC20(crvUSD).balanceOf(swapperProxy), donation, "donation untouched");
+    }
+
     /// @notice Pool revert on leg 1 is surfaced via PoolCallFailed (forward).
     function test_swap_fxSaveToWstEth_poolRevert_surfacesError() public {
         MockFxSaveScrvUsdPool(poolFxSaveScrvUsd).setShouldRevert(true);

@@ -78,10 +78,13 @@ contract FxSaveWstEthSwapper_v1 is// solhint-disable-line contract-name-capwords
         IERC20(_fxSave()).safeTransferFrom(recipient, address(this), amountIn);
 
         uint256 wstEthBefore = IERC20(_wstEth()).balanceOf(address(this));
+        uint256 scrvUsdBefore = IERC20(_scrvUsdVault()).balanceOf(address(this));
 
         _curveExchange(_poolFxSaveScrvUsd(), _pool2IFxSave(), _pool2JScrvUsd(), _fxSave(), amountIn, 0);
 
-        uint256 vaultShares = IERC20(_scrvUsdVault()).balanceOf(address(this));
+        // Delta, not full balance: consume only the shares this leg produced so any
+        // pre-existing (donated) scrvUSD balance is left untouched rather than swept out.
+        uint256 vaultShares = IERC20(_scrvUsdVault()).balanceOf(address(this)) - scrvUsdBefore;
 
         IERC20(_scrvUsdVault()).forceApprove(_scrvUsdVault(), vaultShares);
         uint256 crvUsdOut = IERC4626(_scrvUsdVault()).redeem(vaultShares, address(this), address(this));
@@ -111,10 +114,13 @@ contract FxSaveWstEthSwapper_v1 is// solhint-disable-line contract-name-capwords
         IERC20(_wstEth()).safeTransferFrom(recipient, address(this), amountIn);
 
         uint256 fxSaveBefore = IERC20(_fxSave()).balanceOf(address(this));
+        uint256 crvUsdBefore = IERC20(_crvUsd()).balanceOf(address(this));
 
         _curveExchange(_poolTricryptoLlama(), _pool1JWstEth(), _pool1ICrvUsd(), _wstEth(), amountIn, 0);
 
-        uint256 crvUsdBal = IERC20(_crvUsd()).balanceOf(address(this));
+        // Delta, not full balance: deposit only the crvUSD this leg produced so any
+        // pre-existing (donated) crvUSD balance is left untouched rather than swept out.
+        uint256 crvUsdBal = IERC20(_crvUsd()).balanceOf(address(this)) - crvUsdBefore;
         // slither-disable-next-line incorrect-equality
         if (crvUsdBal == 0) {
             revert VaultDepositFailed();
