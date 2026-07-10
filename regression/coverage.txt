@@ -7,6 +7,6 @@
 | src/swap/aggregator/OneInchSwapper_v1.sol     | X  97% (37/38)   | ✓ 100% (37/37)   | ✓ 100% (6/6)   | X  80% (4/5)    |
 | src/swap/executors/BalancerSwapper_v1.sol     | X  93% (26/28)   | X  96% (25/26)   | X  50% (1/2)   | X  86% (6/7)    |
 | src/swap/executors/CurveSwapper_v1.sol        | X  94% (31/33)   | X  96% (27/28)   | X  80% (4/5)   | X  86% (6/7)    |
-| src/swap/executors/FxSaveWstEthSwapper_v1.sol | X  67% (48/72)   | X  82% (60/73)   | X  62% (5/8)   | X  35% (6/17)   |
+| src/swap/executors/FxSaveWstEthSwapper_v1.sol | X  68% (50/74)   | X  84% (66/79)   | X  62% (5/8)   | X  35% (6/17)   |
 | src/swap/executors/UniV3Swapper_v1.sol        | X  92% (22/24)   | X  94% (16/17)   | X  50% (1/2)   | X  86% (6/7)    |
-| Total                                         | X  70% (389/555) | X  76% (358/472) | X  63% (45/71) | X  62% (87/140) |
+| Total                                         | X  70% (391/557) | X  76% (364/478) | X  63% (45/71) | X  62% (87/140) |

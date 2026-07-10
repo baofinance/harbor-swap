@@ -3,11 +3,11 @@ pragma solidity 0.8.30;
 
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
-import {ReentrancyGuardTransient} from "@openzeppelin/contracts/utils/ReentrancyGuardTransient.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 import {HarborOwnableRoles} from "@bao/HarborOwnableRoles.sol";
+import {TokenHolder} from "@bao/TokenHolder.sol";
 import {Token} from "@bao/Token.sol";
 
 import {ISwapExecutor} from "@harbor-swap/interfaces/ISwapExecutor.sol";
@@ -35,7 +35,7 @@ import {ISwapExecutor} from "@harbor-swap/interfaces/ISwapExecutor.sol";
 /// @custom:oz-upgrades-unsafe-allow constructor
 // slither-disable-next-line missing-inheritance — false positive: initialize(address,address) matches IHarborYieldEntryInit by coincidence; the two addresses are (deployerOwner, pendingOwner)
 contract CurveSwapper_v1 is// solhint-disable-line contract-name-capwords
- ISwapExecutor, HarborOwnableRoles, Initializable, UUPSUpgradeable, ReentrancyGuardTransient {
+ ISwapExecutor, HarborOwnableRoles, Initializable, UUPSUpgradeable, TokenHolder {
     using SafeERC20 for IERC20;
 
     /// @notice Role allowing an address to configure Curve routes via setRoute.

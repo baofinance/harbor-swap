@@ -18,6 +18,7 @@ import {MockFxSaveScrvUsdPool} from "@harbor-swap-test-mocks/MockFxSaveScrvUsdPo
 
 import {FxSaveWstEthSwapper_v1} from "@harbor-swap/executors/FxSaveWstEthSwapper_v1.sol";
 import {ISwapExecutor} from "@harbor-swap/interfaces/ISwapExecutor.sol";
+import {TokenHolderTestBase} from "@bao-test/helpers/TokenHolderTestBase.t.sol";
 import {Swapper} from "@harbor-swap-script/contracts/Swapper.sol";
 
 contract FxSaveWstEthSwapperHarness is FxSaveWstEthSwapper_v1 {
@@ -99,7 +100,7 @@ contract FxSaveWstEthSwapperHarness is FxSaveWstEthSwapper_v1 {
     }
 }
 
-contract FxSaveWstEthSwapperTest is BaoTest, Swapper {
+contract FxSaveWstEthSwapperTest is BaoTest, TokenHolderTestBase, Swapper {
     function owner() public view override returns (address) {
         return address(this);
     }
@@ -110,6 +111,18 @@ contract FxSaveWstEthSwapperTest is BaoTest, Swapper {
 
     function _uniV3RouterAddress() internal pure override returns (address) {
         return address(0);
+    }
+
+    function _tokenHolderTarget() internal view override returns (address) {
+        return swapperProxy;
+    }
+
+    function _tokenHolderSweepToken() internal view override returns (address) {
+        return crvUSD;
+    }
+
+    function _tokenHolderNonOwner() internal view override returns (address) {
+        return alice;
     }
 
     address fxSAVE;

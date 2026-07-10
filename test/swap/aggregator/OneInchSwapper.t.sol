@@ -16,9 +16,10 @@ import {MockAggregationRouterV6} from "@harbor-swap-test-mocks/MockAggregationRo
 import {OneInchSwapper_v1} from "@harbor-swap/aggregator/OneInchSwapper_v1.sol";
 import {OneInchV6Selectors} from "@harbor-swap/aggregator/OneInchV6Selectors.sol";
 import {IAggregatorSwapper} from "@harbor-swap/aggregator/IAggregatorSwapper.sol";
+import {TokenHolderTestBase} from "@bao-test/helpers/TokenHolderTestBase.t.sol";
 import {Swapper} from "@harbor-swap-script/contracts/Swapper.sol";
 
-contract OneInchSwapperTest is BaoTest, Swapper {
+contract OneInchSwapperTest is BaoTest, TokenHolderTestBase, Swapper {
     function owner() public view override returns (address) {
         return address(this);
     }
@@ -29,6 +30,18 @@ contract OneInchSwapperTest is BaoTest, Swapper {
 
     function _uniV3RouterAddress() internal pure override returns (address) {
         return address(0);
+    }
+
+    function _tokenHolderTarget() internal view override returns (address) {
+        return oneInchProxy;
+    }
+
+    function _tokenHolderSweepToken() internal view override returns (address) {
+        return fromToken;
+    }
+
+    function _tokenHolderNonOwner() internal view override returns (address) {
+        return alice;
     }
 
     address alice = makeAddr("alice");

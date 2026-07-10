@@ -16,9 +16,10 @@ import {MockCurvePool} from "@harbor-swap-test-mocks/MockCurvePool.sol";
 
 import {CurveSwapper_v1} from "@harbor-swap/executors/CurveSwapper_v1.sol";
 import {ISwapExecutor} from "@harbor-swap/interfaces/ISwapExecutor.sol";
+import {TokenHolderTestBase} from "@bao-test/helpers/TokenHolderTestBase.t.sol";
 import {Swapper} from "@harbor-swap-script/contracts/Swapper.sol";
 
-contract CurveSwapperTest is BaoTest, Swapper {
+contract CurveSwapperTest is BaoTest, TokenHolderTestBase, Swapper {
     // ── FactoryDeployer abstracts ─────────────────────────────────────
     function owner() public view override returns (address) {
         return address(this);
@@ -28,6 +29,17 @@ contract CurveSwapperTest is BaoTest, Swapper {
     }
     function _uniV3RouterAddress() internal pure override returns (address) {
         return address(0);
+    }
+
+    // ── TokenHolder behaviour hooks ───────────────────────────────────
+    function _tokenHolderTarget() internal view override returns (address) {
+        return curveSwapperProxy;
+    }
+    function _tokenHolderSweepToken() internal view override returns (address) {
+        return toToken;
+    }
+    function _tokenHolderNonOwner() internal view override returns (address) {
+        return alice;
     }
 
     // ── Actors ───────────────────────────────────────────────────────
