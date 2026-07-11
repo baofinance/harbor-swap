@@ -14,7 +14,9 @@ import {DeploymentState} from "@bao-script/deployment/DeploymentState.sol";
 import {MockERC20} from "@bao-test/mocks/MockERC20.sol";
 import {MockCurvePool} from "@harbor-swap-test-mocks/MockCurvePool.sol";
 
+import {IOwnable} from "@bao/interfaces/IOwnable.sol";
 import {CurveSwapper_v1} from "@harbor-swap/executors/CurveSwapper_v1.sol";
+import {CurveExchangeLib} from "@harbor-swap/executors/CurveExchangeLib.sol";
 import {ISwapExecutor} from "@harbor-swap/interfaces/ISwapExecutor.sol";
 import {TokenHolderTestBase} from "@bao-test/helpers/TokenHolderTestBase.t.sol";
 import {Swapper} from "@harbor-swap-script/contracts/Swapper.sol";
@@ -84,11 +86,27 @@ contract CurveSwapperTest is BaoTest, TokenHolderTestBase, Swapper {
     // ── Helpers ───────────────────────────────────────────────────────
 
     function _configureRoute() internal {
-        CurveSwapper_v1(curveSwapperProxy).setRoute(fromToken, toToken, pool, I, J, false);
+        CurveSwapper_v1(curveSwapperProxy).setRoute(
+            fromToken,
+            toToken,
+            pool,
+            CurveExchangeLib.CurvePoolKind.StableSwap,
+            I,
+            J,
+            false
+        );
     }
 
     function _configureUnderlyingRoute() internal {
-        CurveSwapper_v1(curveSwapperProxy).setRoute(underlyingFrom, underlyingTo, pool, I, J, true);
+        CurveSwapper_v1(curveSwapperProxy).setRoute(
+            underlyingFrom,
+            underlyingTo,
+            pool,
+            CurveExchangeLib.CurvePoolKind.StableSwap,
+            I,
+            J,
+            true
+        );
     }
 
     function _mintAndApprove(address token, address spender, uint256 amount) internal {
@@ -211,8 +229,17 @@ contract CurveSwapperTest is BaoTest, TokenHolderTestBase, Swapper {
         assertEq(r.i, I);
         assertEq(r.j, J);
         assertFalse(r.useUnderlying);
+        assertEq(uint8(r.kind), uint8(CurveExchangeLib.CurvePoolKind.StableSwap));
 
-        CurveSwapper_v1(curveSwapperProxy).setRoute(fromToken, toToken, address(0), 0, 0, false);
+        CurveSwapper_v1(curveSwapperProxy).setRoute(
+            fromToken,
+            toToken,
+            address(0),
+            CurveExchangeLib.CurvePoolKind.StableSwap,
+            0,
+            0,
+            false
+        );
         r = CurveSwapper_v1(curveSwapperProxy).routes(fromToken, toToken);
         assertEq(r.pool, address(0));
     }
@@ -220,14 +247,45 @@ contract CurveSwapperTest is BaoTest, TokenHolderTestBase, Swapper {
     /// @notice setRoute rejects i == j (invalid configuration).
     function test_setRoute_sameIndices_reverts() public {
         vm.expectRevert(CurveSwapper_v1.InvalidRoute.selector);
-        CurveSwapper_v1(curveSwapperProxy).setRoute(fromToken, toToken, pool, 1, 1, false);
+        CurveSwapper_v1(curveSwapperProxy).setRoute(
+            fromToken,
+            toToken,
+            pool,
+            CurveExchangeLib.CurvePoolKind.StableSwap,
+            1,
+            1,
+            false
+        );
+    }
+
+    /// @notice setRoute rejects negative coin indices.
+    function test_setRoute_negativeIndex_reverts() public {
+        vm.expectRevert(CurveSwapper_v1.InvalidRoute.selector);
+        CurveSwapper_v1(curveSwapperProxy).setRoute(
+            fromToken,
+            toToken,
+            pool,
+            CurveExchangeLib.CurvePoolKind.StableSwap,
+            -1,
+            J,
+            false
+        );
     }
 
     /// @notice Non-owner / non-role address cannot call setRoute.
     function test_setRoute_calledByStranger_reverts() public {
-        vm.prank(alice);
-        vm.expectRevert();
-        CurveSwapper_v1(curveSwapperProxy).setRoute(fromToken, toToken, pool, I, J, false);
+        vm.startPrank(alice);
+        vm.expectRevert(IOwnable.Unauthorized.selector);
+        CurveSwapper_v1(curveSwapperProxy).setRoute(
+            fromToken,
+            toToken,
+            pool,
+            CurveExchangeLib.CurvePoolKind.StableSwap,
+            I,
+            J,
+            false
+        );
+        vm.stopPrank();
     }
 
     /// @notice Address granted ROUTE_SETTER_ROLE can call setRoute without owning.
@@ -237,8 +295,17 @@ contract CurveSwapperTest is BaoTest, TokenHolderTestBase, Swapper {
             CurveSwapper_v1(curveSwapperProxy).ROUTE_SETTER_ROLE()
         );
 
-        vm.prank(routeSetter);
-        CurveSwapper_v1(curveSwapperProxy).setRoute(fromToken, toToken, pool, I, J, false);
+        vm.startPrank(routeSetter);
+        CurveSwapper_v1(curveSwapperProxy).setRoute(
+            fromToken,
+            toToken,
+            pool,
+            CurveExchangeLib.CurvePoolKind.StableSwap,
+            I,
+            J,
+            false
+        );
+        vm.stopPrank();
 
         assertEq(CurveSwapper_v1(curveSwapperProxy).routes(fromToken, toToken).pool, pool);
     }

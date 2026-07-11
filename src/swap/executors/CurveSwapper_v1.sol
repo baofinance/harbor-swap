@@ -11,23 +11,28 @@ import {TokenHolder_v2} from "@bao/TokenHolder_v2.sol";
 import {Token} from "@bao/Token.sol";
 
 import {ISwapExecutor} from "@harbor-swap/interfaces/ISwapExecutor.sol";
+import {CurveExchangeLib} from "@harbor-swap/executors/CurveExchangeLib.sol";
 
 /// @title CurveSwapper_v1
-/// @notice ISwapExecutor implementation for Curve StableSwap-style pools. Each registered
-///         pair stores its target pool, the two int128 coin indices, and a flag selecting
-///         `exchange` vs `exchange_underlying` (for lending / meta pools that wrap aTokens
-///         or cTokens).
+/// @notice ISwapExecutor implementation for Curve pools (both StableSwap and crypto
+///         families). Each registered pair stores its target pool, the pool's family (which
+///         decides the `exchange` ABI — see CurveExchangeLib), the two coin indices, and a
+///         flag selecting `exchange` vs `exchange_underlying` (for lending / meta pools that
+///         wrap aTokens or cTokens).
 /// @dev There is no canonical Curve router across chains — pools are addressed directly,
 ///      so the per-pair config IS the pool address. Approval target is therefore the pool
 ///      itself (cleared to zero after every swap).
 ///
-///      Older StableSwap pools (e.g. 3pool) declare `exchange` as `void` while newer ones
-///      (NG, factory, crypto-stable) return `uint256`. To stay agnostic, this executor
-///      uses a low-level call and computes `amountOut` via post-call balance delta of
-///      `toToken` — that also catches pools that round / charge a fee.
+///      `exchange` is invoked through CurveExchangeLib: a low-level call encoded per pool
+///      family, with `amountOut` computed via post-call balance delta of `toToken` (agnostic
+///      to void-return vs uint256-return pools; also catches pools that round / charge a fee).
 ///
 ///      Security:
-///      - Pool address comes from governance-gated `setRoute` storage; never caller-supplied.
+///      - Pool address and family come from governance-gated `setRoute` storage; never
+///        caller-supplied. A wrong family is a mis-configuration: a crypto pool SWALLOWS the
+///        int128 selector via its Vyper `__default__` (silent no-op) — which the post-call
+///        balance check then catches, but configure the family from the pool's real ABI
+///        (verified on-chain) rather than relying on that backstop.
 ///      - Approval to the pool is reset to zero after every swap.
 ///      - Reentrancy guarded (transient storage) — some Curve pools call back via ERC-777
 ///        or hook-style underlyings.
@@ -43,25 +48,28 @@ contract CurveSwapper_v1 is// solhint-disable-line contract-name-capwords
 
     /// @notice Per-pair route configuration.
     /// @param pool Curve pool to call.
-    /// @param i Index of `fromToken` in the pool (int128 to match Curve's ABI).
+    /// @param i Index of `fromToken` in the pool.
     /// @param j Index of `toToken` in the pool.
     /// @param useUnderlying If true call `exchange_underlying`; otherwise `exchange`.
+    /// @param kind The pool's Curve family — decides the `exchange` ABI (int128 StableSwap
+    ///        vs uint256 crypto). Governance-declared from the pool's real ABI.
     struct CurveRoute {
         address pool;
         int128 i;
         int128 j;
         bool useUnderlying;
+        CurveExchangeLib.CurvePoolKind kind;
     }
 
     error NoRouteConfigured(address fromToken, address toToken);
     error InsufficientOutput(uint256 amountOut, uint256 minAmountOut);
-    error PoolCallFailed(bytes revertData);
     error InvalidRoute();
 
     event RouteSet(
         address indexed fromToken,
         address indexed toToken,
         address indexed pool,
+        CurveExchangeLib.CurvePoolKind kind,
         int128 i,
         int128 j,
         bool useUnderlying
@@ -105,6 +113,9 @@ contract CurveSwapper_v1 is// solhint-disable-line contract-name-capwords
     /// @param fromToken Token to swap from.
     /// @param toToken Token to swap to.
     /// @param pool Curve pool to call.
+    /// @param kind The pool's Curve family (StableSwap int128 vs crypto uint256 `exchange`
+    ///        ABI). Declare it from the pool's real ABI, verified on-chain — a crypto pool
+    ///        silently swallows int128-encoded calls via its Vyper `__default__`.
     /// @param i Coin index of `fromToken` in the pool.
     /// @param j Coin index of `toToken` in the pool.
     /// @param useUnderlying Call `exchange_underlying` instead of `exchange`.
@@ -112,13 +123,14 @@ contract CurveSwapper_v1 is// solhint-disable-line contract-name-capwords
         address fromToken,
         address toToken,
         address pool,
+        CurveExchangeLib.CurvePoolKind kind,
         int128 i,
         int128 j,
         bool useUnderlying
     ) external onlyOwnerOrRoles(ROUTE_SETTER_ROLE) {
         if (pool != address(0)) {
             Token.ensureContract(pool);
-            if (i == j) {
+            if (i == j || i < 0 || j < 0) {
                 revert InvalidRoute();
             }
         }
@@ -126,9 +138,10 @@ contract CurveSwapper_v1 is// solhint-disable-line contract-name-capwords
             pool: pool,
             i: i,
             j: j,
-            useUnderlying: useUnderlying
+            useUnderlying: useUnderlying,
+            kind: kind
         });
-        emit RouteSet(fromToken, toToken, pool, i, j, useUnderlying);
+        emit RouteSet(fromToken, toToken, pool, kind, i, j, useUnderlying);
     }
 
     /// @inheritdoc ISwapExecutor
@@ -149,34 +162,17 @@ contract CurveSwapper_v1 is// solhint-disable-line contract-name-capwords
 
         IERC20(fromToken).forceApprove(route.pool, amountIn);
 
-        // Curve `exchange*` signatures take (int128 i, int128 j, uint256 dx, uint256 min_dy).
-        // We use a low-level call so the executor is agnostic to legacy void-return vs
-        // newer uint256-return pools; amountOut is reconciled via balance delta below.
-        bytes memory callData =
-            route.useUnderlying
-                ? abi.encodeWithSignature(
-                    "exchange_underlying(int128,int128,uint256,uint256)",
-                    route.i,
-                    route.j,
-                    amountIn,
-                    minAmountOut
-                )
-                : abi.encodeWithSignature(
-                    "exchange(int128,int128,uint256,uint256)",
-                    route.i,
-                    route.j,
-                    amountIn,
-                    minAmountOut
-                );
-
-        // slither-disable-next-line low-level-calls
-        (bool ok, bytes memory revertData) = route.pool.call(callData); // solhint-disable-line avoid-low-level-calls
+        CurveExchangeLib.exchange(
+            route.pool,
+            route.kind,
+            route.useUnderlying,
+            route.i,
+            route.j,
+            amountIn,
+            minAmountOut
+        );
 
         IERC20(fromToken).forceApprove(route.pool, 0);
-
-        if (!ok) {
-            revert PoolCallFailed(revertData);
-        }
 
         amountOut = IERC20(toToken).balanceOf(address(this)) - toBalanceBefore;
         if (amountOut < minAmountOut) {

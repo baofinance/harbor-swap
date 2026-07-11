@@ -17,6 +17,7 @@ import {MockCurvePool} from "@harbor-swap-test-mocks/MockCurvePool.sol";
 import {MockFxSaveScrvUsdPool} from "@harbor-swap-test-mocks/MockFxSaveScrvUsdPool.sol";
 
 import {FxSaveWstEthSwapper_v1} from "@harbor-swap/executors/FxSaveWstEthSwapper_v1.sol";
+import {CurveExchangeLib} from "@harbor-swap/executors/CurveExchangeLib.sol";
 import {ISwapExecutor} from "@harbor-swap/interfaces/ISwapExecutor.sol";
 import {TokenHolderTestBase} from "@bao-test/helpers/TokenHolderTestBase.t.sol";
 import {Swapper} from "@harbor-swap-script/contracts/Swapper.sol";
@@ -81,6 +82,17 @@ contract FxSaveWstEthSwapperHarness is FxSaveWstEthSwapper_v1 {
 
     function _poolTricryptoLlama() internal view override returns (address) {
         return _poolTricryptoLlamaAddr;
+    }
+
+    // Both mock pools implement the StableSwap (int128) `exchange` ABI, so both legs are
+    // declared StableSwap here; the production Tricrypto leg is Crypto (uint256) and is
+    // exercised by the fork tests against the real pool.
+    function _poolFxSaveScrvUsdKind() internal pure override returns (CurveExchangeLib.CurvePoolKind) {
+        return CurveExchangeLib.CurvePoolKind.StableSwap;
+    }
+
+    function _poolTricryptoLlamaKind() internal pure override returns (CurveExchangeLib.CurvePoolKind) {
+        return CurveExchangeLib.CurvePoolKind.StableSwap;
     }
 
     function _pool2IFxSave() internal view override returns (int128) {

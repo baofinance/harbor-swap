@@ -11,6 +11,7 @@ import {HarborOwnableRoles} from "@bao/HarborOwnableRoles.sol";
 import {TokenHolder_v2} from "@bao/TokenHolder_v2.sol";
 
 import {ISwapExecutor} from "@harbor-swap/interfaces/ISwapExecutor.sol";
+import {CurveExchangeLib} from "@harbor-swap/executors/CurveExchangeLib.sol";
 import {ConfigFxSaveWstEthRoute_ETH_mainnet} from "@harbor-swap/config/ConfigFxSaveWstEthRoute_ETH_mainnet.sol";
 
 /// @title FxSaveWstEthSwapper_v1
@@ -21,8 +22,10 @@ import {ConfigFxSaveWstEthRoute_ETH_mainnet} from "@harbor-swap/config/ConfigFxS
 ///      Route constants live in `ConfigFxSaveWstEthRoute_ETH_mainnet`. Only `(FXSAVE, WSTETH)`
 ///      and `(WSTETH, FXSAVE)` are supported. Slippage is enforced on final output; intermediate
 ///      legs use `min_dy = 0` on Curve calls (consumer passes oracle-bounded `minAmountOut`).
-///      Curve pools are invoked via low-level `exchange` calls with balance-delta accounting,
-///      matching `CurveSwapper_v1` behaviour for void-return and uint256-return pools.
+///      Curve pools are invoked through `CurveExchangeLib` (low-level `exchange` encoded per
+///      pool family) with balance-delta accounting. The two pools on this route are in
+///      DIFFERENT Curve families: fxSAVE/scrvUSD is StableSwap-NG (int128 indices),
+///      TricryptoLLAMA is a crypto pool (uint256 indices).
 // slither-disable-next-line missing-inheritance — false positive: initialize(address,address) matches IHarborYieldEntryInit by coincidence
 contract FxSaveWstEthSwapper_v1 is// solhint-disable-line contract-name-capwords
  ISwapExecutor, HarborOwnableRoles, Initializable, UUPSUpgradeable, TokenHolder_v2 {
@@ -30,7 +33,6 @@ contract FxSaveWstEthSwapper_v1 is// solhint-disable-line contract-name-capwords
 
     error UnsupportedPair(address fromToken, address toToken);
     error InsufficientOutput(uint256 amountOut, uint256 minAmountOut);
-    error PoolCallFailed(bytes revertData);
     error VaultRedeemFailed();
     error VaultDepositFailed();
 
@@ -80,7 +82,15 @@ contract FxSaveWstEthSwapper_v1 is// solhint-disable-line contract-name-capwords
         uint256 wstEthBefore = IERC20(_wstEth()).balanceOf(address(this));
         uint256 scrvUsdBefore = IERC20(_scrvUsdVault()).balanceOf(address(this));
 
-        _curveExchange(_poolFxSaveScrvUsd(), _pool2IFxSave(), _pool2JScrvUsd(), _fxSave(), amountIn, 0);
+        _curveExchange(
+            _poolFxSaveScrvUsd(),
+            _poolFxSaveScrvUsdKind(),
+            _pool2IFxSave(),
+            _pool2JScrvUsd(),
+            _fxSave(),
+            amountIn,
+            0
+        );
 
         // Delta, not full balance: consume only the shares this leg produced so any
         // pre-existing (donated) scrvUSD balance is left untouched rather than swept out.
@@ -94,7 +104,15 @@ contract FxSaveWstEthSwapper_v1 is// solhint-disable-line contract-name-capwords
             revert VaultRedeemFailed();
         }
 
-        _curveExchange(_poolTricryptoLlama(), _pool1ICrvUsd(), _pool1JWstEth(), _crvUsd(), crvUsdOut, minAmountOut);
+        _curveExchange(
+            _poolTricryptoLlama(),
+            _poolTricryptoLlamaKind(),
+            _pool1ICrvUsd(),
+            _pool1JWstEth(),
+            _crvUsd(),
+            crvUsdOut,
+            minAmountOut
+        );
 
         amountOut = IERC20(_wstEth()).balanceOf(address(this)) - wstEthBefore;
         if (amountOut < minAmountOut) {
@@ -116,7 +134,15 @@ contract FxSaveWstEthSwapper_v1 is// solhint-disable-line contract-name-capwords
         uint256 fxSaveBefore = IERC20(_fxSave()).balanceOf(address(this));
         uint256 crvUsdBefore = IERC20(_crvUsd()).balanceOf(address(this));
 
-        _curveExchange(_poolTricryptoLlama(), _pool1JWstEth(), _pool1ICrvUsd(), _wstEth(), amountIn, 0);
+        _curveExchange(
+            _poolTricryptoLlama(),
+            _poolTricryptoLlamaKind(),
+            _pool1JWstEth(),
+            _pool1ICrvUsd(),
+            _wstEth(),
+            amountIn,
+            0
+        );
 
         // Delta, not full balance: deposit only the crvUSD this leg produced so any
         // pre-existing (donated) crvUSD balance is left untouched rather than swept out.
@@ -136,6 +162,7 @@ contract FxSaveWstEthSwapper_v1 is// solhint-disable-line contract-name-capwords
 
         _curveExchange(
             _poolFxSaveScrvUsd(),
+            _poolFxSaveScrvUsdKind(),
             _pool2JScrvUsd(),
             _pool2IFxSave(),
             _scrvUsdVault(),
@@ -155,6 +182,7 @@ contract FxSaveWstEthSwapper_v1 is// solhint-disable-line contract-name-capwords
 
     function _curveExchange(
         address pool,
+        CurveExchangeLib.CurvePoolKind kind,
         int128 i,
         int128 j,
         address tokenIn,
@@ -162,19 +190,8 @@ contract FxSaveWstEthSwapper_v1 is// solhint-disable-line contract-name-capwords
         uint256 minDy
     ) private {
         IERC20(tokenIn).forceApprove(pool, amountIn);
-        bytes memory callData = abi.encodeWithSignature(
-            "exchange(int128,int128,uint256,uint256)",
-            i,
-            j,
-            amountIn,
-            minDy
-        );
-        // slither-disable-next-line low-level-calls
-        (bool ok, bytes memory revertData) = pool.call(callData); // solhint-disable-line avoid-low-level-calls
+        CurveExchangeLib.exchange(pool, kind, false, i, j, amountIn, minDy);
         IERC20(tokenIn).forceApprove(pool, 0);
-        if (!ok) {
-            revert PoolCallFailed(revertData);
-        }
     }
 
     function _fxSave() internal view virtual returns (address) {
@@ -197,8 +214,16 @@ contract FxSaveWstEthSwapper_v1 is// solhint-disable-line contract-name-capwords
         return ConfigFxSaveWstEthRoute_ETH_mainnet.POOL_FXSAVE_SCRVUSD;
     }
 
+    function _poolFxSaveScrvUsdKind() internal view virtual returns (CurveExchangeLib.CurvePoolKind) {
+        return ConfigFxSaveWstEthRoute_ETH_mainnet.POOL_FXSAVE_SCRVUSD_KIND;
+    }
+
     function _poolTricryptoLlama() internal view virtual returns (address) {
         return ConfigFxSaveWstEthRoute_ETH_mainnet.POOL_TRICRYPTO_LLAMA;
+    }
+
+    function _poolTricryptoLlamaKind() internal view virtual returns (CurveExchangeLib.CurvePoolKind) {
+        return ConfigFxSaveWstEthRoute_ETH_mainnet.POOL_TRICRYPTO_LLAMA_KIND;
     }
 
     function _pool2IFxSave() internal view virtual returns (int128) {
