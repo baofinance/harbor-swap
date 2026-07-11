@@ -18,10 +18,13 @@ import {IOwnable} from "@bao/interfaces/IOwnable.sol";
 import {CurveSwapper_v1} from "@harbor-swap/executors/CurveSwapper_v1.sol";
 import {CurveExchangeLib} from "@harbor-swap/executors/CurveExchangeLib.sol";
 import {ISwapExecutor} from "@harbor-swap/interfaces/ISwapExecutor.sol";
+import {SwapExecutorBase} from "@harbor-swap/SwapExecutorBase.sol";
 import {TokenHolderTestBase} from "@bao-test/helpers/TokenHolderTestBase.t.sol";
+import {SwapExecutorTestBase} from "@harbor-swap-test/SwapExecutorTestBase.sol";
+import {MockFeeOnTransferERC20} from "@harbor-swap-test-mocks/MockFeeOnTransferERC20.sol";
 import {Swapper} from "@harbor-swap-script/contracts/Swapper.sol";
 
-contract CurveSwapperTest is BaoTest, TokenHolderTestBase, Swapper {
+contract CurveSwapperTest is BaoTest, TokenHolderTestBase, SwapExecutorTestBase, Swapper {
     // ── FactoryDeployer abstracts ─────────────────────────────────────
     function owner() public view override returns (address) {
         return address(this);
@@ -42,6 +45,41 @@ contract CurveSwapperTest is BaoTest, TokenHolderTestBase, Swapper {
     }
     function _tokenHolderNonOwner() internal view override returns (address) {
         return alice;
+    }
+
+    // ── SwapExecutor behaviour hooks ──────────────────────────────────
+    function _swapExecutorTarget() internal view override returns (address) {
+        return curveSwapperProxy;
+    }
+    function _swapFromToken() internal view override returns (address) {
+        return fromToken;
+    }
+    function _swapToToken() internal view override returns (address) {
+        return toToken;
+    }
+    function _prepareSwapPair(address fromToken_, address toToken_) internal override {
+        MockCurvePool(pool).setCoin(I, fromToken_);
+        MockCurvePool(pool).setCoin(J, toToken_);
+        CurveSwapper_v1(curveSwapperProxy).setRoute(
+            fromToken_,
+            toToken_,
+            pool,
+            CurveExchangeLib.CurvePoolKind.StableSwap,
+            I,
+            J,
+            false
+        );
+    }
+    function _swapCall(
+        address fromToken_,
+        address toToken_,
+        uint256 amountIn,
+        uint256 minAmountOut
+    ) internal override returns (uint256) {
+        return ISwapExecutor(curveSwapperProxy).swap(fromToken_, toToken_, amountIn, minAmountOut);
+    }
+    function _setVenueRate(uint256 rate) internal override {
+        MockCurvePool(pool).setRate(rate);
     }
 
     // ── Actors ───────────────────────────────────────────────────────
@@ -308,5 +346,31 @@ contract CurveSwapperTest is BaoTest, TokenHolderTestBase, Swapper {
         vm.stopPrank();
 
         assertEq(CurveSwapper_v1(curveSwapperProxy).routes(fromToken, toToken).pool, pool);
+    }
+
+    /// @notice A fee-on-transfer fromToken delivers less than amountIn to the executor and is
+    ///         rejected up front with UnexpectedAmountIn (exact expected/received amounts) —
+    ///         never a wrapped pool error from the venue failing to pull the shortfall.
+    function test_swap_feeOnTransferFromToken_reverts() public {
+        uint256 feeBps = 100; // 1%
+        address fot = address(new MockFeeOnTransferERC20("Fee Token", "FEE", feeBps));
+        uint256 amountIn = 1 ether;
+        MockFeeOnTransferERC20(fot).mint(address(this), amountIn);
+        IERC20(fot).approve(curveSwapperProxy, amountIn);
+
+        MockCurvePool(pool).setCoin(I, fot);
+        CurveSwapper_v1(curveSwapperProxy).setRoute(
+            fot,
+            toToken,
+            pool,
+            CurveExchangeLib.CurvePoolKind.StableSwap,
+            I,
+            J,
+            false
+        );
+
+        uint256 received = amountIn - (amountIn * feeBps) / 10_000;
+        vm.expectRevert(abi.encodeWithSelector(SwapExecutorBase.UnexpectedAmountIn.selector, amountIn, received));
+        ISwapExecutor(curveSwapperProxy).swap(fot, toToken, amountIn, 0);
     }
 }

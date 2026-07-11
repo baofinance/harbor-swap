@@ -16,9 +16,11 @@ import {MockERC4626Vault} from "@harbor-swap-test-mocks/MockERC4626Vault.sol";
 import {MockCurvePool} from "@harbor-swap-test-mocks/MockCurvePool.sol";
 import {MockFxSaveScrvUsdPool} from "@harbor-swap-test-mocks/MockFxSaveScrvUsdPool.sol";
 
+import {Token} from "@bao/Token.sol";
 import {FxSaveWstEthSwapper_v1} from "@harbor-swap/executors/FxSaveWstEthSwapper_v1.sol";
 import {CurveExchangeLib} from "@harbor-swap/executors/CurveExchangeLib.sol";
 import {ISwapExecutor} from "@harbor-swap/interfaces/ISwapExecutor.sol";
+import {SwapExecutorTestBase} from "@harbor-swap-test/SwapExecutorTestBase.sol";
 import {TokenHolderTestBase} from "@bao-test/helpers/TokenHolderTestBase.t.sol";
 import {Swapper} from "@harbor-swap-script/contracts/Swapper.sol";
 
@@ -112,7 +114,7 @@ contract FxSaveWstEthSwapperHarness is FxSaveWstEthSwapper_v1 {
     }
 }
 
-contract FxSaveWstEthSwapperTest is BaoTest, TokenHolderTestBase, Swapper {
+contract FxSaveWstEthSwapperTest is BaoTest, TokenHolderTestBase, SwapExecutorTestBase, Swapper {
     function owner() public view override returns (address) {
         return address(this);
     }
@@ -135,6 +137,32 @@ contract FxSaveWstEthSwapperTest is BaoTest, TokenHolderTestBase, Swapper {
 
     function _tokenHolderNonOwner() internal view override returns (address) {
         return alice;
+    }
+
+    function _swapExecutorTarget() internal view override returns (address) {
+        return swapperProxy;
+    }
+
+    function _swapFromToken() internal view override returns (address) {
+        return fxSAVE;
+    }
+
+    function _swapToToken() internal view override returns (address) {
+        return wstETH;
+    }
+
+    function _swapCall(
+        address fromToken_,
+        address toToken_,
+        uint256 amountIn,
+        uint256 minAmountOut
+    ) internal override returns (uint256) {
+        return ISwapExecutor(swapperProxy).swap(fromToken_, toToken_, amountIn, minAmountOut);
+    }
+
+    /// @dev The forward route's output leg is the Tricrypto mock (crvUSD -> wstETH).
+    function _setVenueRate(uint256 rate) internal override {
+        MockCurvePool(poolTricryptoLlama).setRate(rate);
     }
 
     address fxSAVE;
@@ -205,7 +233,7 @@ contract FxSaveWstEthSwapperTest is BaoTest, TokenHolderTestBase, Swapper {
         _mintAndApprove(fxSAVE, swapperProxy, amountIn);
 
         vm.expectEmit(true, true, true, true);
-        emit FxSaveWstEthSwapper_v1.FxSaveWstEthSwap(address(this), fxSAVE, wstETH, amountIn, amountIn, amountIn);
+        emit FxSaveWstEthSwapper_v1.FxSaveWstEthSwap(address(this), fxSAVE, wstETH, amountIn, amountIn);
 
         uint256 amountOut = ISwapExecutor(swapperProxy).swap(fxSAVE, wstETH, amountIn, 0);
 
@@ -228,7 +256,7 @@ contract FxSaveWstEthSwapperTest is BaoTest, TokenHolderTestBase, Swapper {
         _mintAndApprove(wstETH, swapperProxy, amountIn);
 
         vm.expectEmit(true, true, true, true);
-        emit FxSaveWstEthSwapper_v1.FxSaveWstEthSwap(address(this), wstETH, fxSAVE, amountIn, amountIn, amountIn);
+        emit FxSaveWstEthSwapper_v1.FxSaveWstEthSwap(address(this), wstETH, fxSAVE, amountIn, amountIn);
 
         uint256 amountOut = ISwapExecutor(swapperProxy).swap(wstETH, fxSAVE, amountIn, 0);
 
@@ -245,10 +273,15 @@ contract FxSaveWstEthSwapperTest is BaoTest, TokenHolderTestBase, Swapper {
         ISwapExecutor(swapperProxy).swap(wstETH, fxSAVE, amountIn, amountIn + 1);
     }
 
-    /// @notice Unsupported token pairs revert.
+    /// @notice A genuinely foreign pair (distinct tokens, but not one of the two supported
+    ///         routes) reverts UnsupportedPair. Same-token calls are rejected earlier by the
+    ///         envelope's SameToken guard (covered in SwapExecutorTestBase).
     function test_swap_unsupportedPair_reverts() public {
-        vm.expectRevert(abi.encodeWithSelector(FxSaveWstEthSwapper_v1.UnsupportedPair.selector, fxSAVE, fxSAVE));
-        ISwapExecutor(swapperProxy).swap(fxSAVE, fxSAVE, 1 ether, 0);
+        uint256 amountIn = 1 ether;
+        _mintAndApprove(fxSAVE, swapperProxy, amountIn);
+
+        vm.expectRevert(abi.encodeWithSelector(FxSaveWstEthSwapper_v1.UnsupportedPair.selector, fxSAVE, crvUSD));
+        ISwapExecutor(swapperProxy).swap(fxSAVE, crvUSD, amountIn, 0);
     }
 
     /// @notice Pool and vault allowances are cleared to zero after every forward swap.
@@ -349,24 +382,52 @@ contract FxSaveWstEthSwapperTest is BaoTest, TokenHolderTestBase, Swapper {
         ISwapExecutor(swapperProxy).swap(fxSAVE, wstETH, amountIn, 0);
     }
 
-    /// @notice Zero crvUSD from vault redeem reverts with VaultRedeemFailed (forward).
-    function test_swap_fxSaveToWstEth_vaultRedeemFailed() public {
+    /// @notice A leg-1 Curve exchange that produces zero scrvUSD shares (forward) reverts
+    ///         Token.ZeroInputBalance for the share token — the Curve leg is the failing
+    ///         actor, not the vault.
+    function test_swap_fxSaveToWstEth_zeroLegOneOutput_reverts() public {
         MockFxSaveScrvUsdPool(poolFxSaveScrvUsd).setRate(0);
         uint256 amountIn = 1 ether;
         _mintAndApprove(fxSAVE, swapperProxy, amountIn);
 
-        vm.expectRevert(FxSaveWstEthSwapper_v1.VaultRedeemFailed.selector);
+        vm.expectRevert(abi.encodeWithSelector(Token.ZeroInputBalance.selector, scrvUsdVault));
         ISwapExecutor(swapperProxy).swap(fxSAVE, wstETH, amountIn, 0);
     }
 
-    /// @notice Zero vault shares from deposit reverts with VaultDepositFailed (reverse).
-    function test_swap_wstEthToFxSave_vaultDepositFailed() public {
+    /// @notice A leg-1 Curve exchange that produces zero crvUSD (reverse) reverts
+    ///         Token.ZeroInputBalance for crvUSD — the Curve leg is the failing actor, not
+    ///         the vault.
+    function test_swap_wstEthToFxSave_zeroLegOneOutput_reverts() public {
         MockCurvePool(poolTricryptoLlama).setRate(0);
         uint256 amountIn = 1 ether;
         _mintAndApprove(wstETH, swapperProxy, amountIn);
 
+        vm.expectRevert(abi.encodeWithSelector(Token.ZeroInputBalance.selector, crvUSD));
+        ISwapExecutor(swapperProxy).swap(wstETH, fxSAVE, amountIn, 0);
+    }
+
+    /// @notice A vault redeem that takes >0 shares but returns zero assets reverts
+    ///         VaultRedeemFailed — the vault is the failing actor (forward).
+    function test_swap_fxSaveToWstEth_vaultReturnsZeroAssets_reverts() public {
+        uint256 amountIn = 1 ether;
+        _mintAndApprove(fxSAVE, swapperProxy, amountIn);
+
+        vm.mockCall(scrvUsdVault, abi.encodeWithSelector(IERC4626.redeem.selector), abi.encode(uint256(0)));
+        vm.expectRevert(FxSaveWstEthSwapper_v1.VaultRedeemFailed.selector);
+        ISwapExecutor(swapperProxy).swap(fxSAVE, wstETH, amountIn, 0);
+        vm.clearMockedCalls();
+    }
+
+    /// @notice A vault deposit that takes >0 crvUSD but mints zero shares reverts
+    ///         VaultDepositFailed — the vault is the failing actor (reverse).
+    function test_swap_wstEthToFxSave_vaultReturnsZeroShares_reverts() public {
+        uint256 amountIn = 1 ether;
+        _mintAndApprove(wstETH, swapperProxy, amountIn);
+
+        vm.mockCall(scrvUsdVault, abi.encodeWithSelector(IERC4626.deposit.selector), abi.encode(uint256(0)));
         vm.expectRevert(FxSaveWstEthSwapper_v1.VaultDepositFailed.selector);
         ISwapExecutor(swapperProxy).swap(wstETH, fxSAVE, amountIn, 0);
+        vm.clearMockedCalls();
     }
 
     /// @notice Re-entrant call from the fxSAVE/scrvUSD pool is blocked by nonReentrant (forward).

@@ -17,7 +17,7 @@ src/swap/aggregator/OneInchSwapper_v1.sol:OneInchSwapper_v1
 |-----------------|--------|-----------|
 | ROUTER          |    282 | 2.820e+02 |
 | initialize      |  70270 | 7.027e+04 |
-| swap            | 209238 | 2.092e+05 |
+| swap            | 210640 | 2.106e+05 |
 | sweep           |  37825 | 3.782e+04 |
 
 src/swap/executors/BalancerSwapper_v1.sol:BalancerSwapper_v1
@@ -39,14 +39,14 @@ src/swap/executors/CurveSwapper_v1.sol:CurveSwapper_v1
 | initialize        |  70296 | 7.030e+04 |
 | routes            |   7644 | 7.644e+03 |
 | setRoute          |  76155 | 7.616e+04 |
-| swap              | 266565 | 2.666e+05 |
+| swap              | 270237 | 2.702e+05 |
 | sweep             |  37803 | 3.780e+04 |
 
 src/swap/executors/FxSaveWstEthSwapper_v1.sol:FxSaveWstEthSwapper_v1
 | function name   |    max |   display |
 |-----------------|--------|-----------|
 | initialize      |  70318 | 7.032e+04 |
-| swap            | 581561 | 5.816e+05 |
+| swap            | 584324 | 5.843e+05 |
 
 src/swap/executors/UniV3Swapper_v1.sol:UniV3Swapper_v1
 | function name    |    max |   display |
@@ -90,6 +90,13 @@ test/mocks/MockERC4626Vault.sol:MockERC4626Vault
 | asset           |    324 | 3.240e+02 |
 | balanceOf       |   2594 | 2.594e+03 |
 | deposit         | 101764 | 1.018e+05 |
+
+test/mocks/MockFeeOnTransferERC20.sol:MockFeeOnTransferERC20
+| function name   |   max |   display |
+|-----------------|-------|-----------|
+| approve         | 46389 | 4.639e+04 |
+| balanceOf       |  2604 | 2.604e+03 |
+| mint            | 68563 | 6.856e+04 |
 
 test/mocks/MockFxSaveScrvUsdPool.sol:MockFxSaveScrvUsdPool
 | function name    |    max |   display |

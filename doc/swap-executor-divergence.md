@@ -247,8 +247,22 @@ Introduce `SwapExecutorBase` (abstract) owning, once:
    permissive fallback can accept a call and do nothing; we must not depend on the caller
    having passed a non-zero floor), then enforce `amountOut >= minAmountOut` — **the
    authoritative guard**, in every executor, always
-6. refund unspent input; deliver `amountOut` to `msg.sender`
-7. `nonReentrant` + `TokenHolder` + ownership
+6. refund unspent input (measured against the pre-pull balance; underflow-free by
+   construction); deliver `amountOut` to `msg.sender`
+
+The base is deliberately **stateless** — it does NOT bundle Initializable / UUPSUpgradeable /
+ownership / TokenHolder (this repo's convention is that every UUPS contract composes those
+directly, because each has its own init and access needs). Concretes keep their own
+`initialize`, apply `nonReentrant` on their external `swap` (the guard arrives via
+`TokenHolder_v2`), and implement only `_execute`.
+
+Two ABI-visible consequences of the conversion:
+- `InsufficientAmountOut` moved from `IAggregatorSwapper` to the base (same signature, so the
+  selector is unchanged); Curve/FxSave's `InsufficientOutput` is superseded by it.
+- `FxSaveWstEthSwap` slimmed from 6 fields to 5: `amountOut` is dropped (the final output is
+  the function's return value and the envelope's Transfer log; the event is emitted mid-route
+  where only the intermediate is known — threading the final amount back in would need hidden
+  cross-call state, which this codebase bans).
 
 Concrete executors implement only `_execute`: Curve's low-level `exchange`, 1inch's router
 call, FxSave's multi-leg composite (its legs live inside the hook; the outer envelope is the

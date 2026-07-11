@@ -12,6 +12,7 @@ import {Token} from "@bao/Token.sol";
 
 import {ISwapExecutor} from "@harbor-swap/interfaces/ISwapExecutor.sol";
 import {CurveExchangeLib} from "@harbor-swap/executors/CurveExchangeLib.sol";
+import {SwapExecutorBase} from "@harbor-swap/SwapExecutorBase.sol";
 
 /// @title CurveSwapper_v1
 /// @notice ISwapExecutor implementation for Curve pools (both StableSwap and crypto
@@ -40,7 +41,7 @@ import {CurveExchangeLib} from "@harbor-swap/executors/CurveExchangeLib.sol";
 /// @custom:oz-upgrades-unsafe-allow constructor
 // slither-disable-next-line missing-inheritance — false positive: initialize(address,address) matches IHarborYieldEntryInit by coincidence; the two addresses are (deployerOwner, pendingOwner)
 contract CurveSwapper_v1 is// solhint-disable-line contract-name-capwords
- ISwapExecutor, HarborOwnableRoles, Initializable, UUPSUpgradeable, TokenHolder_v2 {
+ ISwapExecutor, HarborOwnableRoles, Initializable, UUPSUpgradeable, TokenHolder_v2, SwapExecutorBase {
     using SafeERC20 for IERC20;
 
     /// @notice Role allowing an address to configure Curve routes via setRoute.
@@ -62,7 +63,6 @@ contract CurveSwapper_v1 is// solhint-disable-line contract-name-capwords
     }
 
     error NoRouteConfigured(address fromToken, address toToken);
-    error InsufficientOutput(uint256 amountOut, uint256 minAmountOut);
     error InvalidRoute();
 
     event RouteSet(
@@ -151,14 +151,24 @@ contract CurveSwapper_v1 is// solhint-disable-line contract-name-capwords
         uint256 amountIn,
         uint256 minAmountOut
     ) external override nonReentrant returns (uint256 amountOut) {
+        (amountOut, ) = _swapEnvelope(fromToken, toToken, amountIn, minAmountOut, "");
+    }
+
+    /// @dev The pool leg: resolve the governance-set route, approve exactly `amountIn`,
+    ///      exchange through CurveExchangeLib (encoded per the route's pool family), reset
+    ///      the approval. `minAmountOut` is forwarded as the pool's own `min_dy` for an
+    ///      early revert; the envelope re-checks it authoritatively.
+    function _execute(
+        address fromToken,
+        address toToken,
+        uint256 amountIn,
+        uint256 minAmountOut,
+        bytes memory
+    ) internal override {
         CurveRoute memory route = _getCurveSwapperStorage().routes[fromToken][toToken];
         if (route.pool == address(0)) {
             revert NoRouteConfigured(fromToken, toToken);
         }
-
-        IERC20(fromToken).safeTransferFrom(msg.sender, address(this), amountIn);
-
-        uint256 toBalanceBefore = IERC20(toToken).balanceOf(address(this));
 
         IERC20(fromToken).forceApprove(route.pool, amountIn);
 
@@ -173,13 +183,6 @@ contract CurveSwapper_v1 is// solhint-disable-line contract-name-capwords
         );
 
         IERC20(fromToken).forceApprove(route.pool, 0);
-
-        amountOut = IERC20(toToken).balanceOf(address(this)) - toBalanceBefore;
-        if (amountOut < minAmountOut) {
-            revert InsufficientOutput(amountOut, minAmountOut);
-        }
-
-        IERC20(toToken).safeTransfer(msg.sender, amountOut);
     }
 
     function _authorizeUpgrade(address) internal override onlyOwner {} // solhint-disable-line no-empty-blocks
