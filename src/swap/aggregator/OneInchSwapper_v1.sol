@@ -7,7 +7,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 import {HarborOwnableRoles} from "@bao/HarborOwnableRoles.sol";
-import {TokenHolder} from "@bao/TokenHolder.sol";
+import {TokenHolder_v2} from "@bao/TokenHolder_v2.sol";
 import {Token} from "@bao/Token.sol";
 
 import {IAggregatorSwapper} from "@harbor-swap/aggregator/IAggregatorSwapper.sol";
@@ -33,7 +33,7 @@ import {OneInchV6Selectors} from "@harbor-swap/aggregator/OneInchV6Selectors.sol
 /// @custom:oz-upgrades-unsafe-allow state-variable-immutable constructor
 // slither-disable-next-line missing-inheritance — false positive: initialize(address,address) ABI matches IHarborYieldEntryInit by coincidence; the two addresses are (deployerOwner, pendingOwner), not entry init args
 contract OneInchSwapper_v1 is// solhint-disable-line contract-name-capwords
- IAggregatorSwapper, HarborOwnableRoles, Initializable, UUPSUpgradeable, TokenHolder {
+ IAggregatorSwapper, HarborOwnableRoles, Initializable, UUPSUpgradeable, TokenHolder_v2 {
     using SafeERC20 for IERC20;
 
     /// @notice The fixed router this adapter calls. On most chains 1inch v6 lives at the
