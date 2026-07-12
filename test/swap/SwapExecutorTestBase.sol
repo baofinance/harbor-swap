@@ -18,10 +18,22 @@ abstract contract SwapExecutorTestBase is Test {
     function _swapExecutorTarget() internal view virtual returns (address);
 
     /// @dev The default configured pair for this executor's venue mock. Both must be
-    ///      mintable MockERC20s at 1:1 venue rate by default.
+    ///      mintable MockERC20s; their decimals may differ (the generic-executor fixtures
+    ///      deliberately mix 6 and 18) — amounts below are derived from the tokens' own
+    ///      decimals.
     function _swapFromToken() internal view virtual returns (address);
 
     function _swapToToken() internal view virtual returns (address);
+
+    /// @dev One whole unit of the fixture's fromToken (10^decimals).
+    function _oneFromToken() private view returns (uint256) {
+        return 10 ** MockERC20(_swapFromToken()).decimals();
+    }
+
+    /// @dev Half a whole unit of the fixture's toToken.
+    function _halfToToken() private view returns (uint256) {
+        return (10 ** MockERC20(_swapToToken()).decimals()) / 2;
+    }
 
     /// @dev Venue-side setup for a distinct (fromToken, toToken) pair — e.g. configuring a
     ///      route on a routed executor. Called by tests BEFORE any `vm.expectRevert`, so
@@ -64,7 +76,7 @@ abstract contract SwapExecutorTestBase is Test {
     /// @notice fromToken == toToken is a caller bug: reverts SameToken, never a passthrough
     ///         and never a venue-specific error.
     function test_swapExecutor_sameToken_reverts() public {
-        uint256 amountIn = 1 ether;
+        uint256 amountIn = _oneFromToken();
         address token = _swapFromToken();
         _fundAndApprove(token, amountIn);
 
@@ -76,7 +88,7 @@ abstract contract SwapExecutorTestBase is Test {
     ///         ZeroAmountOut even when minAmountOut is 0 — the guard that turns the
     ///         permissive-fallback failure mode from silent fund loss into a revert.
     function test_swapExecutor_zeroOutput_reverts() public {
-        uint256 amountIn = 1 ether;
+        uint256 amountIn = _oneFromToken();
         _fundAndApprove(_swapFromToken(), amountIn);
         _prepareSwapPair(_swapFromToken(), _swapToToken());
         _setVenueRate(0);
@@ -89,7 +101,7 @@ abstract contract SwapExecutorTestBase is Test {
     ///         the fixture's non-unity rate) so an off-by-one in the comparison cannot creep
     ///         in.
     function test_swapExecutor_exactMinAmountOut_succeeds() public {
-        uint256 amountIn = 1 ether;
+        uint256 amountIn = _oneFromToken();
         _fundAndApprove(_swapFromToken(), amountIn);
         _prepareSwapPair(_swapFromToken(), _swapToToken());
         uint256 expected = _expectedOut(amountIn);
@@ -104,7 +116,7 @@ abstract contract SwapExecutorTestBase is Test {
     ///         caught by the executor's own balance-delta floor — the authoritative guard —
     ///         with the exact shortfall in the error.
     function test_swapExecutor_belowMinAmountOut_reverts() public {
-        uint256 amountIn = 1 ether;
+        uint256 amountIn = _oneFromToken();
         _fundAndApprove(_swapFromToken(), amountIn);
         _prepareSwapPair(_swapFromToken(), _swapToToken());
         uint256 minAmountOut = _expectedOut(amountIn);
@@ -121,8 +133,8 @@ abstract contract SwapExecutorTestBase is Test {
     ///         caller: the caller receives only the swap's own output delta and the donation
     ///         stays in the executor (recoverable via sweep).
     function test_swapExecutor_donatedToToken_notPaidToCaller() public {
-        uint256 amountIn = 1 ether;
-        uint256 donation = 0.5 ether;
+        uint256 amountIn = _oneFromToken();
+        uint256 donation = _halfToToken();
         MockERC20(_swapToToken()).mint(_swapExecutorTarget(), donation);
         _fundAndApprove(_swapFromToken(), amountIn);
         _prepareSwapPair(_swapFromToken(), _swapToToken());

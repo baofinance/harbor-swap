@@ -170,6 +170,10 @@ contract FxSaveWstEthSwapperTest is BaoTest, TokenHolderTestBase, SwapExecutorTe
         );
     }
 
+    // All fixture tokens are 18 decimals BY CONSTRUCTION: the real route's tokens (fxSAVE,
+    // wstETH, crvUSD, scrvUSD) are all genuinely 18-decimals, so mixed-decimals fixtures
+    // would model an impossible configuration. Mixed-decimals coverage of the shared
+    // envelope lives in the generic executor fixtures (OneInch 6→18, Curve 18→6).
     address fxSAVE;
     address wstETH;
     address crvUSD;

@@ -98,15 +98,22 @@ contract OneInchSwapperTest is BaoTest, TokenHolderTestBase, SwapExecutorTestBas
 
     string constant SALT_PREFIX = "test_oneinch";
 
-    /// @dev Non-unity fixture rate (≈ real crvUSD → wstETH), so amount assertions cannot
-    ///      pass by an `amountOut == amountIn` tautology.
-    uint256 constant ROUTER_RATE = 0.000447e18;
+    /// @dev Non-unity fixture rate with a DECIMALS GAP baked in: the router mints out-units
+    ///      per in-unit ×1e18, and the fixture pair is 6-decimals → 18-decimals (a
+    ///      USDC→WETH-like direction, the opposite gap to the Curve fixture). 1e6 in-units ≈
+    ///      0.000447e18 out-wei, so the rate is 0.000447e18 × 1e12 = 0.000447e30. No
+    ///      assertion can pass by an `amountOut == amountIn` tautology or by assuming equal
+    ///      decimals.
+    uint256 constant ROUTER_RATE = 0.000447e30;
+
+    /// @dev 1000 whole units of the 6-decimals fromToken.
+    uint256 constant AMOUNT_IN = 1_000e6;
 
     function setUp() public {
         _ensureBaoFactory();
         _setSaltPrefix(SALT_PREFIX);
 
-        fromToken = address(new MockERC20("From Token", "FROM", 18));
+        fromToken = address(new MockERC20("From Token", "FROM", 6));
         toToken = address(new MockERC20("To Token", "TO", 18));
 
         router = address(new MockAggregationRouterV6());
@@ -175,7 +182,7 @@ contract OneInchSwapperTest is BaoTest, TokenHolderTestBase, SwapExecutorTestBas
     }
 
     function test_swap_happyPath() public {
-        uint256 amountIn = 1 ether;
+        uint256 amountIn = AMOUNT_IN;
         _mintAndApprove(fromToken, oneInchProxy, amountIn);
 
         uint256 amountOut = IAggregatorSwapper(oneInchProxy).swap(
@@ -196,7 +203,7 @@ contract OneInchSwapperTest is BaoTest, TokenHolderTestBase, SwapExecutorTestBas
     }
 
     function test_swap_approvalsCleared() public {
-        uint256 amountIn = 1 ether;
+        uint256 amountIn = AMOUNT_IN;
         _mintAndApprove(fromToken, oneInchProxy, amountIn);
 
         IAggregatorSwapper(oneInchProxy).swap(fromToken, toToken, amountIn, 0, _routerData(amountIn));
@@ -205,7 +212,7 @@ contract OneInchSwapperTest is BaoTest, TokenHolderTestBase, SwapExecutorTestBas
     }
 
     function test_swap_rejectsEmptyCalldata() public {
-        uint256 amountIn = 1 ether;
+        uint256 amountIn = AMOUNT_IN;
         _mintAndApprove(fromToken, oneInchProxy, amountIn);
 
         vm.expectRevert(IAggregatorSwapper.RouterCalldataTooShort.selector);
@@ -213,7 +220,7 @@ contract OneInchSwapperTest is BaoTest, TokenHolderTestBase, SwapExecutorTestBas
     }
 
     function test_swap_rejectsDisallowedSelector() public {
-        uint256 amountIn = 1 ether;
+        uint256 amountIn = AMOUNT_IN;
         _mintAndApprove(fromToken, oneInchProxy, amountIn);
 
         bytes memory badData = abi.encodePacked(bytes4(0xdeadbeef), _routerData(amountIn));
@@ -230,7 +237,7 @@ contract OneInchSwapperTest is BaoTest, TokenHolderTestBase, SwapExecutorTestBas
     }
 
     function test_swap_tokensTransferred() public {
-        uint256 amountIn = 3 ether;
+        uint256 amountIn = 3 * AMOUNT_IN;
         MockERC20(fromToken).mint(alice, amountIn);
 
         vm.startPrank(alice);
@@ -248,18 +255,9 @@ contract OneInchSwapperTest is BaoTest, TokenHolderTestBase, SwapExecutorTestBas
         assertEq(IERC20(toToken).balanceOf(alice), amountOut);
     }
 
-    function test_swap_slippage_reverts() public {
-        MockAggregationRouterV6(router).setRate(0.5e18);
-        uint256 amountIn = 1 ether;
-        _mintAndApprove(fromToken, oneInchProxy, amountIn);
-
-        vm.expectRevert(abi.encodeWithSelector(SwapExecutorBase.InsufficientAmountOut.selector, 0.5 ether, 1 ether));
-        IAggregatorSwapper(oneInchProxy).swap(fromToken, toToken, amountIn, 1 ether, _routerData(amountIn));
-    }
-
     function test_swap_routerRevert_surfacesError() public {
         MockAggregationRouterV6(router).setShouldRevert(true);
-        uint256 amountIn = 1 ether;
+        uint256 amountIn = AMOUNT_IN;
         _mintAndApprove(fromToken, oneInchProxy, amountIn);
 
         vm.expectRevert();
@@ -267,7 +265,7 @@ contract OneInchSwapperTest is BaoTest, TokenHolderTestBase, SwapExecutorTestBas
     }
 
     function test_swap_reentrancyGuard() public {
-        uint256 amountIn = 1 ether;
+        uint256 amountIn = AMOUNT_IN;
         _mintAndApprove(fromToken, oneInchProxy, amountIn * 2);
 
         bytes memory reentrantCall = abi.encodeCall(
@@ -283,7 +281,7 @@ contract OneInchSwapperTest is BaoTest, TokenHolderTestBase, SwapExecutorTestBas
     function test_swap_partialFill_refundsUnspent() public {
         MockAggregationRouterV6(router).setPartialFillRatio(0.6e18);
 
-        uint256 amountIn = 1 ether;
+        uint256 amountIn = AMOUNT_IN;
         uint256 spent = (amountIn * 0.6e18) / 1e18;
         _mintAndApprove(fromToken, oneInchProxy, amountIn);
 

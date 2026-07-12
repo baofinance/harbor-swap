@@ -108,18 +108,21 @@ contract CurveSwapperTest is BaoTest, TokenHolderTestBase, SwapExecutorTestBase,
     int128 constant I = 0;
     int128 constant J = 1;
 
-    /// @dev Non-unity fixture rate (≈ real crvUSD → wstETH), so amount assertions cannot
-    ///      pass by an `amountOut == amountIn` tautology.
-    uint256 constant CURVE_RATE = 0.000447e18;
+    /// @dev Non-unity fixture rate with a DECIMALS GAP baked in: the pool quotes out-units
+    ///      per in-unit ×1e18, and the fixture pairs are 18-decimals → 6-decimals (a
+    ///      WETH→USDC-like direction, output-truncating). 1e18 in-units at $2237 →
+    ///      2237e6 out-units, so the rate is 2237e6. No assertion can pass by an
+    ///      `amountOut == amountIn` tautology or by assuming equal decimals.
+    uint256 constant CURVE_RATE = 2237e6;
 
     function setUp() public {
         _ensureBaoFactory();
         _setSaltPrefix(SALT_PREFIX);
 
         fromToken = address(new MockERC20("From Token", "FROM", 18));
-        toToken = address(new MockERC20("To Token", "TO", 18));
+        toToken = address(new MockERC20("To Token", "TO", 6));
         underlyingFrom = address(new MockERC20("Underlying From", "UF", 18));
-        underlyingTo = address(new MockERC20("Underlying To", "UT", 18));
+        underlyingTo = address(new MockERC20("Underlying To", "UT", 6));
 
         pool = address(new MockCurveStableSwapPool());
         MockCurveStableSwapPool(pool).setCoin(I, fromToken);
@@ -286,15 +289,18 @@ contract CurveSwapperTest is BaoTest, TokenHolderTestBase, SwapExecutorTestBase,
         ISwapExecutor(curveSwapperProxy).swap(fromToken, toToken, amountIn, 0);
     }
 
-    /// @notice Pool's own min_dy enforcement reverts when rate is below the slippage floor.
+    /// @notice Pool's own min_dy enforcement reverts when minAmountOut exceeds the pool's
+    ///         output (the executor forwards minAmountOut as min_dy for an early revert).
     function test_swap_slippage_reverts() public {
         _configureRoute();
-        MockCurveStableSwapPool(pool).setRate(0.9e18);
         uint256 amountIn = 1 ether;
         _mintAndApprove(fromToken, curveSwapperProxy, amountIn);
+        // Hoisted: an argument sub-expression making an external call would steal the
+        // expectRevert binding.
+        uint256 minTooHigh = _expectedOut(amountIn) + 1;
 
         vm.expectRevert(); // pool rejects below min_dy -> PoolCallFailed wraps
-        ISwapExecutor(curveSwapperProxy).swap(fromToken, toToken, amountIn, 1 ether);
+        ISwapExecutor(curveSwapperProxy).swap(fromToken, toToken, amountIn, minTooHigh);
     }
 
     /// @notice Pool revert is surfaced via PoolCallFailed.
