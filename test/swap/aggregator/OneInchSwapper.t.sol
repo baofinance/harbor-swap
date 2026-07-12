@@ -79,6 +79,16 @@ contract OneInchSwapperTest is BaoTest, TokenHolderTestBase, SwapExecutorTestBas
         MockAggregationRouterV6(router).setRate(rate);
     }
 
+    function _expectedOut(uint256 amountIn) internal view override returns (uint256) {
+        return (amountIn * MockAggregationRouterV6(router).rate()) / 1e18;
+    }
+
+    /// @dev The mock router never honours a minimum (1inch's minReturn lives inside opaque
+    ///      calldata), so under-delivering is just a rate cut.
+    function _setVenueLiar() internal override {
+        MockAggregationRouterV6(router).setRate(MockAggregationRouterV6(router).rate() / 2);
+    }
+
     address alice = makeAddr("alice");
 
     address fromToken;
@@ -87,6 +97,10 @@ contract OneInchSwapperTest is BaoTest, TokenHolderTestBase, SwapExecutorTestBas
     address oneInchProxy;
 
     string constant SALT_PREFIX = "test_oneinch";
+
+    /// @dev Non-unity fixture rate (≈ real crvUSD → wstETH), so amount assertions cannot
+    ///      pass by an `amountOut == amountIn` tautology.
+    uint256 constant ROUTER_RATE = 0.000447e18;
 
     function setUp() public {
         _ensureBaoFactory();
@@ -97,6 +111,7 @@ contract OneInchSwapperTest is BaoTest, TokenHolderTestBase, SwapExecutorTestBas
 
         router = address(new MockAggregationRouterV6());
         assertEq(MockAggregationRouterV6(router).swapSelector(), OneInchV6Selectors.SWAP);
+        MockAggregationRouterV6(router).setRate(ROUTER_RATE);
 
         DeploymentTypes.State memory state = DeploymentState.fresh(SALT_PREFIX, "test");
         state.baoFactory = baoFactory();
@@ -171,7 +186,7 @@ contract OneInchSwapperTest is BaoTest, TokenHolderTestBase, SwapExecutorTestBas
             _routerData(amountIn)
         );
 
-        assertEq(amountOut, amountIn, "Mock router default rate 1:1");
+        assertEq(amountOut, _expectedOut(amountIn), "router-rate-scaled output");
         assertEq(IERC20(toToken).balanceOf(address(this)), amountOut);
         assertEq(IERC20(fromToken).balanceOf(address(this)), 0);
     }
@@ -269,6 +284,7 @@ contract OneInchSwapperTest is BaoTest, TokenHolderTestBase, SwapExecutorTestBas
         MockAggregationRouterV6(router).setPartialFillRatio(0.6e18);
 
         uint256 amountIn = 1 ether;
+        uint256 spent = (amountIn * 0.6e18) / 1e18;
         _mintAndApprove(fromToken, oneInchProxy, amountIn);
 
         uint256 amountOut = IAggregatorSwapper(oneInchProxy).swap(
@@ -279,9 +295,9 @@ contract OneInchSwapperTest is BaoTest, TokenHolderTestBase, SwapExecutorTestBas
             _routerData(amountIn)
         );
 
-        assertEq(amountOut, 0.6 ether);
-        assertEq(IERC20(toToken).balanceOf(address(this)), 0.6 ether);
-        assertEq(IERC20(fromToken).balanceOf(address(this)), 0.4 ether);
+        assertEq(amountOut, _expectedOut(spent), "output scaled from the spent portion");
+        assertEq(IERC20(toToken).balanceOf(address(this)), amountOut);
+        assertEq(IERC20(fromToken).balanceOf(address(this)), amountIn - spent, "unspent portion refunded");
         assertEq(IERC20(fromToken).balanceOf(oneInchProxy), 0);
         assertEq(IERC20(toToken).balanceOf(oneInchProxy), 0);
     }

@@ -61,6 +61,7 @@ src/swap/executors/UniV3Swapper_v1.sol:UniV3Swapper_v1
 test/mocks/MockAggregationRouterV6.sol:MockAggregationRouterV6
 | function name       |    max |   display |
 |---------------------|--------|-----------|
+| rate                |   2339 | 2.339e+03 |
 | setPartialFillRatio |  26519 | 2.652e+04 |
 | setRate             |  26496 | 2.650e+04 |
 | setReentrantCall    | 417900 | 4.179e+05 |
@@ -73,23 +74,37 @@ test/mocks/MockBalancerVault.sol:MockBalancerVault
 | setRate          |  26496 | 2.650e+04 |
 | setReentrantCall | 159094 | 1.591e+05 |
 
-test/mocks/MockCurvePool.sol:MockCurvePool
+test/mocks/MockCurveCryptoPool.sol:MockCurveCryptoPool
+| function name   |   max |   display |
+|-----------------|-------|-----------|
+| rate            |  2340 | 2.340e+03 |
+| setCoin         | 44216 | 4.422e+04 |
+| setHonourMinDy  | 21759 | 2.176e+04 |
+| setRate         | 26542 | 2.654e+04 |
+
+test/mocks/MockCurveStableSwapPool.sol:MockCurveStableSwapPool
 | function name    |    max |   display |
 |------------------|--------|-----------|
-| setCoin          |  44280 | 4.428e+04 |
-| setRate          |  26497 | 2.650e+04 |
-| setReentrantCall | 159100 | 1.591e+05 |
-| setReturnVoid    |  43690 | 4.369e+04 |
-| setShouldRevert  |  43636 | 4.364e+04 |
-| setUnderlying    |  44210 | 4.421e+04 |
+| rate             |   2362 | 2.362e+03 |
+| setCoin          |  44260 | 4.426e+04 |
+| setHonourMinDy   |  21759 | 2.176e+04 |
+| setRate          |  26564 | 2.656e+04 |
+| setReentrantCall | 142023 | 1.420e+05 |
+| setReturnVoid    |  43658 | 4.366e+04 |
+| setShouldRevert  |  26602 | 2.660e+04 |
+| setUnderlying    |  44214 | 4.421e+04 |
 
 test/mocks/MockERC4626Vault.sol:MockERC4626Vault
 | function name   |    max |   display |
 |-----------------|--------|-----------|
+| addYield        |  37133 | 3.713e+04 |
 | allowance       |   2777 | 2.777e+03 |
 | asset           |    324 | 3.240e+02 |
 | balanceOf       |   2594 | 2.594e+03 |
 | deposit         | 101764 | 1.018e+05 |
+| previewDeposit  |   8905 | 8.905e+03 |
+| totalAssets     |   5741 | 5.741e+03 |
+| totalSupply     |   2370 | 2.370e+03 |
 
 test/mocks/MockFeeOnTransferERC20.sol:MockFeeOnTransferERC20
 | function name   |   max |   display |
@@ -101,7 +116,8 @@ test/mocks/MockFeeOnTransferERC20.sol:MockFeeOnTransferERC20
 test/mocks/MockFxSaveScrvUsdPool.sol:MockFxSaveScrvUsdPool
 | function name    |    max |   display |
 |------------------|--------|-----------|
-| setRate          |  21647 | 2.165e+04 |
+| rate             |   2306 | 2.306e+03 |
+| setRate          |  26531 | 2.653e+04 |
 | setReentrantCall | 159161 | 1.592e+05 |
 | setShouldRevert  |  43658 | 4.366e+04 |
 

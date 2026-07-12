@@ -46,6 +46,16 @@ abstract contract SwapExecutorTestBase is Test {
     ///      (venue produces nothing and reports success — the silent no-op case).
     function _setVenueRate(uint256 rate) internal virtual;
 
+    /// @dev The exact output the venue fixture will produce for `amountIn` on the default
+    ///      pair at its CURRENT configuration — composed from the fixture's own rates /
+    ///      preview functions, never hardcoded, so fixtures can (and do) use non-unity rates.
+    function _expectedOut(uint256 amountIn) internal view virtual returns (uint256);
+
+    /// @dev Turn the venue into a "liar": it under-delivers relative to its current rate and
+    ///      ignores any natively-enforced minimum, reporting success. Used to prove the
+    ///      executor's own balance-delta floor is the guard that actually protects callers.
+    function _setVenueLiar() internal virtual;
+
     function _fundAndApprove(address token, uint256 amount) private {
         MockERC20(token).mint(address(this), amount);
         IERC20(token).approve(_swapExecutorTarget(), amount);
@@ -75,17 +85,36 @@ abstract contract SwapExecutorTestBase is Test {
         _swapCall(_swapFromToken(), _swapToToken(), amountIn, 0);
     }
 
-    /// @notice amountOut exactly equal to minAmountOut succeeds — pins the >= boundary so an
-    ///         off-by-one in the comparison cannot creep in.
+    /// @notice amountOut exactly equal to minAmountOut succeeds — pins the >= boundary (at
+    ///         the fixture's non-unity rate) so an off-by-one in the comparison cannot creep
+    ///         in.
     function test_swapExecutor_exactMinAmountOut_succeeds() public {
         uint256 amountIn = 1 ether;
         _fundAndApprove(_swapFromToken(), amountIn);
         _prepareSwapPair(_swapFromToken(), _swapToToken());
+        uint256 expected = _expectedOut(amountIn);
 
-        uint256 amountOut = _swapCall(_swapFromToken(), _swapToToken(), amountIn, amountIn);
+        uint256 amountOut = _swapCall(_swapFromToken(), _swapToToken(), amountIn, expected);
 
-        assertEq(amountOut, amountIn, "1:1 venue rate delivers exactly minAmountOut");
+        assertEq(amountOut, expected, "venue delivers exactly minAmountOut");
         assertEq(IERC20(_swapToToken()).balanceOf(address(this)), amountOut, "delivered to caller");
+    }
+
+    /// @notice A venue that under-delivers WITHOUT reverting (ignoring any native minimum) is
+    ///         caught by the executor's own balance-delta floor — the authoritative guard —
+    ///         with the exact shortfall in the error.
+    function test_swapExecutor_belowMinAmountOut_reverts() public {
+        uint256 amountIn = 1 ether;
+        _fundAndApprove(_swapFromToken(), amountIn);
+        _prepareSwapPair(_swapFromToken(), _swapToToken());
+        uint256 minAmountOut = _expectedOut(amountIn);
+
+        _setVenueLiar();
+        uint256 lied = _expectedOut(amountIn);
+        assertLt(lied, minAmountOut, "sanity: the liar under-delivers");
+
+        vm.expectRevert(abi.encodeWithSelector(SwapExecutorBase.InsufficientAmountOut.selector, lied, minAmountOut));
+        _swapCall(_swapFromToken(), _swapToToken(), amountIn, minAmountOut);
     }
 
     /// @notice A donated toToken balance sitting in the executor is not paid out to the
@@ -97,10 +126,11 @@ abstract contract SwapExecutorTestBase is Test {
         MockERC20(_swapToToken()).mint(_swapExecutorTarget(), donation);
         _fundAndApprove(_swapFromToken(), amountIn);
         _prepareSwapPair(_swapFromToken(), _swapToToken());
+        uint256 expected = _expectedOut(amountIn);
 
         uint256 amountOut = _swapCall(_swapFromToken(), _swapToToken(), amountIn, 0);
 
-        assertEq(amountOut, amountIn, "donation not swept into output");
+        assertEq(amountOut, expected, "donation not swept into output");
         assertEq(IERC20(_swapToToken()).balanceOf(address(this)), amountOut, "caller got only the delta");
         assertEq(IERC20(_swapToToken()).balanceOf(_swapExecutorTarget()), donation, "donation untouched");
     }

@@ -12,7 +12,8 @@ import {DeploymentTypes} from "@bao-script/deployment/DeploymentTypes.sol";
 import {DeploymentState} from "@bao-script/deployment/DeploymentState.sol";
 
 import {MockERC20} from "@bao-test/mocks/MockERC20.sol";
-import {MockCurvePool} from "@harbor-swap-test-mocks/MockCurvePool.sol";
+import {MockCurveStableSwapPool} from "@harbor-swap-test-mocks/MockCurveStableSwapPool.sol";
+import {MockCurveCryptoPool} from "@harbor-swap-test-mocks/MockCurveCryptoPool.sol";
 
 import {IOwnable} from "@bao/interfaces/IOwnable.sol";
 import {CurveSwapper_v1} from "@harbor-swap/executors/CurveSwapper_v1.sol";
@@ -58,8 +59,8 @@ contract CurveSwapperTest is BaoTest, TokenHolderTestBase, SwapExecutorTestBase,
         return toToken;
     }
     function _prepareSwapPair(address fromToken_, address toToken_) internal override {
-        MockCurvePool(pool).setCoin(I, fromToken_);
-        MockCurvePool(pool).setCoin(J, toToken_);
+        MockCurveStableSwapPool(pool).setCoin(I, fromToken_);
+        MockCurveStableSwapPool(pool).setCoin(J, toToken_);
         CurveSwapper_v1(curveSwapperProxy).setRoute(
             fromToken_,
             toToken_,
@@ -79,7 +80,14 @@ contract CurveSwapperTest is BaoTest, TokenHolderTestBase, SwapExecutorTestBase,
         return ISwapExecutor(curveSwapperProxy).swap(fromToken_, toToken_, amountIn, minAmountOut);
     }
     function _setVenueRate(uint256 rate) internal override {
-        MockCurvePool(pool).setRate(rate);
+        MockCurveStableSwapPool(pool).setRate(rate);
+    }
+    function _expectedOut(uint256 amountIn) internal view override returns (uint256) {
+        return (amountIn * MockCurveStableSwapPool(pool).rate()) / 1e18;
+    }
+    function _setVenueLiar() internal override {
+        MockCurveStableSwapPool(pool).setHonourMinDy(false);
+        MockCurveStableSwapPool(pool).setRate(MockCurveStableSwapPool(pool).rate() / 2);
     }
 
     // ── Actors ───────────────────────────────────────────────────────
@@ -100,6 +108,10 @@ contract CurveSwapperTest is BaoTest, TokenHolderTestBase, SwapExecutorTestBase,
     int128 constant I = 0;
     int128 constant J = 1;
 
+    /// @dev Non-unity fixture rate (≈ real crvUSD → wstETH), so amount assertions cannot
+    ///      pass by an `amountOut == amountIn` tautology.
+    uint256 constant CURVE_RATE = 0.000447e18;
+
     function setUp() public {
         _ensureBaoFactory();
         _setSaltPrefix(SALT_PREFIX);
@@ -109,11 +121,12 @@ contract CurveSwapperTest is BaoTest, TokenHolderTestBase, SwapExecutorTestBase,
         underlyingFrom = address(new MockERC20("Underlying From", "UF", 18));
         underlyingTo = address(new MockERC20("Underlying To", "UT", 18));
 
-        pool = address(new MockCurvePool());
-        MockCurvePool(pool).setCoin(I, fromToken);
-        MockCurvePool(pool).setCoin(J, toToken);
-        MockCurvePool(pool).setUnderlying(I, underlyingFrom);
-        MockCurvePool(pool).setUnderlying(J, underlyingTo);
+        pool = address(new MockCurveStableSwapPool());
+        MockCurveStableSwapPool(pool).setCoin(I, fromToken);
+        MockCurveStableSwapPool(pool).setCoin(J, toToken);
+        MockCurveStableSwapPool(pool).setUnderlying(I, underlyingFrom);
+        MockCurveStableSwapPool(pool).setUnderlying(J, underlyingTo);
+        MockCurveStableSwapPool(pool).setRate(CURVE_RATE);
 
         DeploymentTypes.State memory state = DeploymentState.fresh(SALT_PREFIX, "test");
         state.baoFactory = baoFactory();
@@ -154,7 +167,8 @@ contract CurveSwapperTest is BaoTest, TokenHolderTestBase, SwapExecutorTestBase,
 
     // ── Tests ─────────────────────────────────────────────────────────
 
-    /// @notice Configured plain route: `exchange` is invoked; toToken arrives at caller.
+    /// @notice Configured plain route: `exchange` is invoked; the rate-scaled toToken output
+    ///         arrives at the caller.
     function test_swap_exchange_happyPath() public {
         _configureRoute();
         uint256 amountIn = 1 ether;
@@ -162,7 +176,7 @@ contract CurveSwapperTest is BaoTest, TokenHolderTestBase, SwapExecutorTestBase,
 
         uint256 amountOut = ISwapExecutor(curveSwapperProxy).swap(fromToken, toToken, amountIn, 0);
 
-        assertEq(amountOut, amountIn, "MockCurvePool default rate 1:1");
+        assertEq(amountOut, _expectedOut(amountIn), "pool-rate-scaled output");
         assertEq(IERC20(toToken).balanceOf(address(this)), amountOut);
         assertEq(IERC20(fromToken).balanceOf(address(this)), 0);
     }
@@ -175,7 +189,7 @@ contract CurveSwapperTest is BaoTest, TokenHolderTestBase, SwapExecutorTestBase,
 
         uint256 amountOut = ISwapExecutor(curveSwapperProxy).swap(underlyingFrom, underlyingTo, amountIn, 0);
 
-        assertEq(amountOut, amountIn);
+        assertEq(amountOut, _expectedOut(amountIn), "pool-rate-scaled output");
         assertEq(IERC20(underlyingTo).balanceOf(address(this)), amountOut);
     }
 
@@ -183,12 +197,84 @@ contract CurveSwapperTest is BaoTest, TokenHolderTestBase, SwapExecutorTestBase,
     ///         amountOut via balance delta.
     function test_swap_voidReturnPool_succeeds() public {
         _configureRoute();
-        MockCurvePool(pool).setReturnVoid(true);
+        MockCurveStableSwapPool(pool).setReturnVoid(true);
         uint256 amountIn = 1 ether;
         _mintAndApprove(fromToken, curveSwapperProxy, amountIn);
 
         uint256 amountOut = ISwapExecutor(curveSwapperProxy).swap(fromToken, toToken, amountIn, 0);
-        assertEq(amountOut, amountIn);
+        assertEq(amountOut, _expectedOut(amountIn), "pool-rate-scaled output despite void return");
+    }
+
+    /// @notice A Crypto-declared route through a crypto-family pool (uint256 `exchange`)
+    ///         executes correctly — the family dispatch the general executor previously
+    ///         could not route at all.
+    function test_swap_cryptoPoolRoute_succeeds() public {
+        address cryptoPool = address(new MockCurveCryptoPool());
+        MockCurveCryptoPool(payable(cryptoPool)).setCoin(I, fromToken);
+        MockCurveCryptoPool(payable(cryptoPool)).setCoin(J, toToken);
+        MockCurveCryptoPool(payable(cryptoPool)).setRate(CURVE_RATE);
+        CurveSwapper_v1(curveSwapperProxy).setRoute(
+            fromToken,
+            toToken,
+            cryptoPool,
+            CurveExchangeLib.CurvePoolKind.Crypto,
+            I,
+            J,
+            false
+        );
+        uint256 amountIn = 1 ether;
+        _mintAndApprove(fromToken, curveSwapperProxy, amountIn);
+
+        uint256 amountOut = ISwapExecutor(curveSwapperProxy).swap(fromToken, toToken, amountIn, 0);
+
+        assertEq(amountOut, (amountIn * CURVE_RATE) / 1e18, "crypto pool rate-scaled output");
+        assertEq(IERC20(toToken).balanceOf(address(this)), amountOut);
+    }
+
+    /// @notice A route mis-declared StableSwap while pointing at a CRYPTO pool sends the
+    ///         int128 selector, which the pool's permissive fallback swallows as a silent
+    ///         no-op — the envelope's ZeroAmountOut guard turns that into a revert instead
+    ///         of silent fund loss. Mock-form regression pin of the mainnet TricryptoLLAMA
+    ///         encoding defect.
+    function test_swap_familyMisdeclaredStableSwap_revertsZeroAmountOut() public {
+        address cryptoPool = address(new MockCurveCryptoPool());
+        MockCurveCryptoPool(payable(cryptoPool)).setCoin(I, fromToken);
+        MockCurveCryptoPool(payable(cryptoPool)).setCoin(J, toToken);
+        CurveSwapper_v1(curveSwapperProxy).setRoute(
+            fromToken,
+            toToken,
+            cryptoPool,
+            CurveExchangeLib.CurvePoolKind.StableSwap,
+            I,
+            J,
+            false
+        );
+        uint256 amountIn = 1 ether;
+        _mintAndApprove(fromToken, curveSwapperProxy, amountIn);
+
+        vm.expectRevert(SwapExecutorBase.ZeroAmountOut.selector);
+        ISwapExecutor(curveSwapperProxy).swap(fromToken, toToken, amountIn, 0);
+    }
+
+    /// @notice A route mis-declared Crypto while pointing at a STABLESWAP pool sends the
+    ///         uint256 selector, which the pool (no fallback, like the real NG pools)
+    ///         rejects with an empty revert, surfaced as PoolCallFailed with empty inner
+    ///         bytes.
+    function test_swap_familyMisdeclaredCrypto_revertsPoolCallFailed() public {
+        CurveSwapper_v1(curveSwapperProxy).setRoute(
+            fromToken,
+            toToken,
+            pool,
+            CurveExchangeLib.CurvePoolKind.Crypto,
+            I,
+            J,
+            false
+        );
+        uint256 amountIn = 1 ether;
+        _mintAndApprove(fromToken, curveSwapperProxy, amountIn);
+
+        vm.expectRevert(abi.encodeWithSelector(CurveExchangeLib.PoolCallFailed.selector, bytes("")));
+        ISwapExecutor(curveSwapperProxy).swap(fromToken, toToken, amountIn, 0);
     }
 
     /// @notice No configured route -> NoRouteConfigured.
@@ -203,7 +289,7 @@ contract CurveSwapperTest is BaoTest, TokenHolderTestBase, SwapExecutorTestBase,
     /// @notice Pool's own min_dy enforcement reverts when rate is below the slippage floor.
     function test_swap_slippage_reverts() public {
         _configureRoute();
-        MockCurvePool(pool).setRate(0.9e18);
+        MockCurveStableSwapPool(pool).setRate(0.9e18);
         uint256 amountIn = 1 ether;
         _mintAndApprove(fromToken, curveSwapperProxy, amountIn);
 
@@ -214,7 +300,7 @@ contract CurveSwapperTest is BaoTest, TokenHolderTestBase, SwapExecutorTestBase,
     /// @notice Pool revert is surfaced via PoolCallFailed.
     function test_swap_poolRevert_surfacesError() public {
         _configureRoute();
-        MockCurvePool(pool).setShouldRevert(true);
+        MockCurveStableSwapPool(pool).setShouldRevert(true);
         uint256 amountIn = 1 ether;
         _mintAndApprove(fromToken, curveSwapperProxy, amountIn);
 
@@ -253,7 +339,7 @@ contract CurveSwapperTest is BaoTest, TokenHolderTestBase, SwapExecutorTestBase,
         _mintAndApprove(fromToken, curveSwapperProxy, amountIn * 2);
 
         bytes memory reentrantCall = abi.encodeCall(ISwapExecutor.swap, (fromToken, toToken, amountIn, 0));
-        MockCurvePool(pool).setReentrantCall(curveSwapperProxy, reentrantCall);
+        MockCurveStableSwapPool(pool).setReentrantCall(curveSwapperProxy, reentrantCall);
 
         vm.expectRevert();
         ISwapExecutor(curveSwapperProxy).swap(fromToken, toToken, amountIn, 0);
@@ -358,7 +444,7 @@ contract CurveSwapperTest is BaoTest, TokenHolderTestBase, SwapExecutorTestBase,
         MockFeeOnTransferERC20(fot).mint(address(this), amountIn);
         IERC20(fot).approve(curveSwapperProxy, amountIn);
 
-        MockCurvePool(pool).setCoin(I, fot);
+        MockCurveStableSwapPool(pool).setCoin(I, fot);
         CurveSwapper_v1(curveSwapperProxy).setRoute(
             fot,
             toToken,
