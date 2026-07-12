@@ -62,8 +62,15 @@ contract MockAggregationRouterV6 {
 
         if (reentrantTarget != address(0)) {
             // solhint-disable-next-line avoid-low-level-calls
-            (bool ok, ) = reentrantTarget.call(reentrantCalldata);
-            require(ok, "MockAggregationRouterV6: reentrant call failed");
+            (bool ok, bytes memory ret) = reentrantTarget.call(reentrantCalldata);
+            if (!ok) {
+                // Bubble the inner revert unchanged so tests can pin the exact error the
+                // re-entered contract raised (e.g. the reentrancy guard's).
+                // solhint-disable-next-line no-inline-assembly
+                assembly {
+                    revert(add(ret, 32), mload(ret))
+                }
+            }
         }
     }
 

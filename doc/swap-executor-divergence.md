@@ -1,6 +1,21 @@
 # Swap executor — divergence from the original design
 
-**Status:** proposed, on branch `swap-adapter-shuffled`. Isolated pending sign-off.
+**Status:** IMPLEMENTED on branch `swap-adapter-shuffled`, isolated pending sign-off. Every
+change below is built and verified: 126/126 unit tests, 6/6 mainnet fork tests (pinned block
+25,500,000 — both composite directions execute within 0.1% of on-chain quotes, and the
+no-allowance `redeem` is proven against the real scrvUSD vault), `yarn slither` 0 results.
+The unit suite includes a permanent mock-form regression pin of the §1 defect
+(a StableSwap-declared route against a crypto pool reverts `ZeroAmountOut` instead of
+silently consuming funds), "liar venue" tests proving the envelope's floor is the guard that
+actually protects callers, mixed-decimals fixtures on the generic executors (6↔18), and full
+UUPS upgrade/initialise-surface coverage.
+
+**Known follow-up, deliberately out of scope:** `UniV3Swapper_v1` and `BalancerSwapper_v1`
+are NOT converted onto `SwapExecutorBase` (this work covered the three executors the Slither
+review flagged). Until converted they keep the old per-executor envelope — including
+same-token passthrough/ad-hoc behaviour, no fee-on-transfer check, and no zero-output guard —
+and their tests keep unpinned assertions. Converting them is the same mechanical pattern as
+§3/§4.
 
 **Audience:** the original author of `OneInchSwapper_v1`, `CurveSwapper_v1`,
 `FxSaveWstEthSwapper_v1` and their configs. This document states, for each change, what the

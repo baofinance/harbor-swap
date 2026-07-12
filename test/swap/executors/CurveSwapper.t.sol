@@ -15,17 +15,21 @@ import {MockERC20} from "@bao-test/mocks/MockERC20.sol";
 import {MockCurveStableSwapPool} from "@harbor-swap-test-mocks/MockCurveStableSwapPool.sol";
 import {MockCurveCryptoPool} from "@harbor-swap-test-mocks/MockCurveCryptoPool.sol";
 
+import {ReentrancyGuardTransient} from "@openzeppelin/contracts/utils/ReentrancyGuardTransient.sol";
+
 import {IOwnable} from "@bao/interfaces/IOwnable.sol";
+import {Token} from "@bao/Token.sol";
 import {CurveSwapper_v1} from "@harbor-swap/executors/CurveSwapper_v1.sol";
 import {CurveExchangeLib} from "@harbor-swap/executors/CurveExchangeLib.sol";
 import {ISwapExecutor} from "@harbor-swap/interfaces/ISwapExecutor.sol";
 import {SwapExecutorBase} from "@harbor-swap/SwapExecutorBase.sol";
 import {TokenHolderTestBase} from "@bao-test/helpers/TokenHolderTestBase.t.sol";
+import {UUPSOwnableTestBase} from "@bao-test/helpers/UUPSOwnableTestBase.t.sol";
 import {SwapExecutorTestBase} from "@harbor-swap-test/SwapExecutorTestBase.sol";
 import {MockFeeOnTransferERC20} from "@harbor-swap-test-mocks/MockFeeOnTransferERC20.sol";
 import {Swapper} from "@harbor-swap-script/contracts/Swapper.sol";
 
-contract CurveSwapperTest is BaoTest, TokenHolderTestBase, SwapExecutorTestBase, Swapper {
+contract CurveSwapperTest is BaoTest, TokenHolderTestBase, SwapExecutorTestBase, UUPSOwnableTestBase, Swapper {
     // ── FactoryDeployer abstracts ─────────────────────────────────────
     function owner() public view override returns (address) {
         return address(this);
@@ -88,6 +92,17 @@ contract CurveSwapperTest is BaoTest, TokenHolderTestBase, SwapExecutorTestBase,
     function _setVenueLiar() internal override {
         MockCurveStableSwapPool(pool).setHonourMinDy(false);
         MockCurveStableSwapPool(pool).setRate(MockCurveStableSwapPool(pool).rate() / 2);
+    }
+
+    // ── UUPS behaviour hooks ──────────────────────────────────────────
+    function _uupsProxyTarget() internal view override returns (address) {
+        return curveSwapperProxy;
+    }
+    function _uupsNonOwner() internal view override returns (address) {
+        return alice;
+    }
+    function _uupsCallInitialize(address target) internal override {
+        CurveSwapper_v1(target).initialize(address(1), address(2));
     }
 
     // ── Actors ───────────────────────────────────────────────────────
@@ -299,7 +314,12 @@ contract CurveSwapperTest is BaoTest, TokenHolderTestBase, SwapExecutorTestBase,
         // expectRevert binding.
         uint256 minTooHigh = _expectedOut(amountIn) + 1;
 
-        vm.expectRevert(); // pool rejects below min_dy -> PoolCallFailed wraps
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                CurveExchangeLib.PoolCallFailed.selector,
+                abi.encodeWithSignature("Error(string)", "Slippage")
+            )
+        );
         ISwapExecutor(curveSwapperProxy).swap(fromToken, toToken, amountIn, minTooHigh);
     }
 
@@ -310,7 +330,12 @@ contract CurveSwapperTest is BaoTest, TokenHolderTestBase, SwapExecutorTestBase,
         uint256 amountIn = 1 ether;
         _mintAndApprove(fromToken, curveSwapperProxy, amountIn);
 
-        vm.expectRevert(); // PoolCallFailed wraps "MockCurvePool: forced revert"
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                CurveExchangeLib.PoolCallFailed.selector,
+                abi.encodeWithSignature("Error(string)", "MockCurvePool: forced revert")
+            )
+        );
         ISwapExecutor(curveSwapperProxy).swap(fromToken, toToken, amountIn, 0);
     }
 
@@ -347,7 +372,12 @@ contract CurveSwapperTest is BaoTest, TokenHolderTestBase, SwapExecutorTestBase,
         bytes memory reentrantCall = abi.encodeCall(ISwapExecutor.swap, (fromToken, toToken, amountIn, 0));
         MockCurveStableSwapPool(pool).setReentrantCall(curveSwapperProxy, reentrantCall);
 
-        vm.expectRevert();
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                CurveExchangeLib.PoolCallFailed.selector,
+                abi.encodeWithSelector(ReentrancyGuardTransient.ReentrancyGuardReentrantCall.selector)
+            )
+        );
         ISwapExecutor(curveSwapperProxy).swap(fromToken, toToken, amountIn, 0);
     }
 
@@ -438,6 +468,55 @@ contract CurveSwapperTest is BaoTest, TokenHolderTestBase, SwapExecutorTestBase,
         vm.stopPrank();
 
         assertEq(CurveSwapper_v1(curveSwapperProxy).routes(fromToken, toToken).pool, pool);
+    }
+
+    /// @notice setRoute emits the full RouteSet event, including the pool family.
+    function test_setRoute_emitsRouteSet() public {
+        vm.expectEmit(true, true, true, true);
+        emit CurveSwapper_v1.RouteSet(
+            fromToken,
+            toToken,
+            pool,
+            CurveExchangeLib.CurvePoolKind.StableSwap,
+            I,
+            J,
+            false
+        );
+        _configureRoute();
+    }
+
+    /// @notice setRoute rejects a pool address with no code.
+    function test_setRoute_nonContractPool_reverts() public {
+        address eoa = makeAddr("eoaPool");
+        vm.expectRevert(abi.encodeWithSelector(Token.NotContractAddress.selector, eoa));
+        CurveSwapper_v1(curveSwapperProxy).setRoute(
+            fromToken,
+            toToken,
+            eoa,
+            CurveExchangeLib.CurvePoolKind.StableSwap,
+            I,
+            J,
+            false
+        );
+    }
+
+    /// @notice Clearing a route (pool = 0) makes subsequent swaps revert NoRouteConfigured.
+    function test_swap_afterRouteCleared_reverts() public {
+        _configureRoute();
+        CurveSwapper_v1(curveSwapperProxy).setRoute(
+            fromToken,
+            toToken,
+            address(0),
+            CurveExchangeLib.CurvePoolKind.StableSwap,
+            0,
+            0,
+            false
+        );
+        uint256 amountIn = 1 ether;
+        _mintAndApprove(fromToken, curveSwapperProxy, amountIn);
+
+        vm.expectRevert(abi.encodeWithSelector(CurveSwapper_v1.NoRouteConfigured.selector, fromToken, toToken));
+        ISwapExecutor(curveSwapperProxy).swap(fromToken, toToken, amountIn, 0);
     }
 
     /// @notice A fee-on-transfer fromToken delivers less than amountIn to the executor and is

@@ -13,16 +13,20 @@ import {DeploymentState} from "@bao-script/deployment/DeploymentState.sol";
 import {MockERC20} from "@bao-test/mocks/MockERC20.sol";
 import {MockAggregationRouterV6} from "@harbor-swap-test-mocks/MockAggregationRouterV6.sol";
 
+import {ReentrancyGuardTransient} from "@openzeppelin/contracts/utils/ReentrancyGuardTransient.sol";
+
+import {Token} from "@bao/Token.sol";
 import {OneInchSwapper_v1} from "@harbor-swap/aggregator/OneInchSwapper_v1.sol";
 import {OneInchV6Selectors} from "@harbor-swap/aggregator/OneInchV6Selectors.sol";
 import {IAggregatorSwapper} from "@harbor-swap/aggregator/IAggregatorSwapper.sol";
 import {SwapExecutorBase} from "@harbor-swap/SwapExecutorBase.sol";
 import {TokenHolderTestBase} from "@bao-test/helpers/TokenHolderTestBase.t.sol";
+import {UUPSOwnableTestBase} from "@bao-test/helpers/UUPSOwnableTestBase.t.sol";
 import {SwapExecutorTestBase} from "@harbor-swap-test/SwapExecutorTestBase.sol";
 import {MockFeeOnTransferERC20} from "@harbor-swap-test-mocks/MockFeeOnTransferERC20.sol";
 import {Swapper} from "@harbor-swap-script/contracts/Swapper.sol";
 
-contract OneInchSwapperTest is BaoTest, TokenHolderTestBase, SwapExecutorTestBase, Swapper {
+contract OneInchSwapperTest is BaoTest, TokenHolderTestBase, SwapExecutorTestBase, UUPSOwnableTestBase, Swapper {
     function owner() public view override returns (address) {
         return address(this);
     }
@@ -77,6 +81,18 @@ contract OneInchSwapperTest is BaoTest, TokenHolderTestBase, SwapExecutorTestBas
 
     function _setVenueRate(uint256 rate) internal override {
         MockAggregationRouterV6(router).setRate(rate);
+    }
+
+    function _uupsProxyTarget() internal view override returns (address) {
+        return oneInchProxy;
+    }
+
+    function _uupsNonOwner() internal view override returns (address) {
+        return alice;
+    }
+
+    function _uupsCallInitialize(address target) internal override {
+        OneInchSwapper_v1(target).initialize(address(1), address(2));
     }
 
     function _expectedOut(uint256 amountIn) internal view override returns (uint256) {
@@ -184,6 +200,10 @@ contract OneInchSwapperTest is BaoTest, TokenHolderTestBase, SwapExecutorTestBas
     function test_swap_happyPath() public {
         uint256 amountIn = AMOUNT_IN;
         _mintAndApprove(fromToken, oneInchProxy, amountIn);
+        uint256 expected = _expectedOut(amountIn);
+
+        vm.expectEmit(true, true, true, true);
+        emit IAggregatorSwapper.AggregatorSwap(address(this), fromToken, toToken, amountIn, expected, 0);
 
         uint256 amountOut = IAggregatorSwapper(oneInchProxy).swap(
             fromToken,
@@ -260,7 +280,12 @@ contract OneInchSwapperTest is BaoTest, TokenHolderTestBase, SwapExecutorTestBas
         uint256 amountIn = AMOUNT_IN;
         _mintAndApprove(fromToken, oneInchProxy, amountIn);
 
-        vm.expectRevert();
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IAggregatorSwapper.RouterCallFailed.selector,
+                abi.encodeWithSignature("Error(string)", "MockAggregationRouterV6: forced revert")
+            )
+        );
         IAggregatorSwapper(oneInchProxy).swap(fromToken, toToken, amountIn, 0, _routerData(amountIn));
     }
 
@@ -274,7 +299,12 @@ contract OneInchSwapperTest is BaoTest, TokenHolderTestBase, SwapExecutorTestBas
         );
         MockAggregationRouterV6(router).setReentrantCall(oneInchProxy, reentrantCall);
 
-        vm.expectRevert();
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IAggregatorSwapper.RouterCallFailed.selector,
+                abi.encodeWithSelector(ReentrancyGuardTransient.ReentrancyGuardReentrantCall.selector)
+            )
+        );
         IAggregatorSwapper(oneInchProxy).swap(fromToken, toToken, amountIn, 0, _routerData(amountIn));
     }
 
@@ -284,6 +314,10 @@ contract OneInchSwapperTest is BaoTest, TokenHolderTestBase, SwapExecutorTestBas
         uint256 amountIn = AMOUNT_IN;
         uint256 spent = (amountIn * 0.6e18) / 1e18;
         _mintAndApprove(fromToken, oneInchProxy, amountIn);
+        uint256 expected = _expectedOut(spent);
+
+        vm.expectEmit(true, true, true, true);
+        emit IAggregatorSwapper.AggregatorSwap(address(this), fromToken, toToken, amountIn, expected, amountIn - spent);
 
         uint256 amountOut = IAggregatorSwapper(oneInchProxy).swap(
             fromToken,
@@ -298,6 +332,13 @@ contract OneInchSwapperTest is BaoTest, TokenHolderTestBase, SwapExecutorTestBas
         assertEq(IERC20(fromToken).balanceOf(address(this)), amountIn - spent, "unspent portion refunded");
         assertEq(IERC20(fromToken).balanceOf(oneInchProxy), 0);
         assertEq(IERC20(toToken).balanceOf(oneInchProxy), 0);
+    }
+
+    /// @notice The constructor rejects a router address with no code.
+    function test_constructor_nonContractRouter_reverts() public {
+        address eoa = makeAddr("eoaRouter");
+        vm.expectRevert(abi.encodeWithSelector(Token.NotContractAddress.selector, eoa));
+        new OneInchSwapper_v1(eoa);
     }
 
     /// @notice A fee-on-transfer fromToken delivers less than amountIn to the adapter and is

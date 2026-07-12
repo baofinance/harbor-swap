@@ -17,11 +17,15 @@ import {MockERC4626Vault} from "@harbor-swap-test-mocks/MockERC4626Vault.sol";
 import {MockCurveCryptoPool} from "@harbor-swap-test-mocks/MockCurveCryptoPool.sol";
 import {MockFxSaveScrvUsdPool} from "@harbor-swap-test-mocks/MockFxSaveScrvUsdPool.sol";
 
+import {ReentrancyGuardTransient} from "@openzeppelin/contracts/utils/ReentrancyGuardTransient.sol";
+
 import {Token} from "@bao/Token.sol";
 import {FxSaveWstEthSwapper_v1} from "@harbor-swap/executors/FxSaveWstEthSwapper_v1.sol";
+import {CurveExchangeLib} from "@harbor-swap/executors/CurveExchangeLib.sol";
 import {ISwapExecutor} from "@harbor-swap/interfaces/ISwapExecutor.sol";
 import {SwapExecutorTestBase} from "@harbor-swap-test/SwapExecutorTestBase.sol";
 import {TokenHolderTestBase} from "@bao-test/helpers/TokenHolderTestBase.t.sol";
+import {UUPSOwnableTestBase} from "@bao-test/helpers/UUPSOwnableTestBase.t.sol";
 import {Swapper} from "@harbor-swap-script/contracts/Swapper.sol";
 
 contract FxSaveWstEthSwapperHarness is FxSaveWstEthSwapper_v1 {
@@ -107,7 +111,7 @@ contract FxSaveWstEthSwapperHarness is FxSaveWstEthSwapper_v1 {
     }
 }
 
-contract FxSaveWstEthSwapperTest is BaoTest, TokenHolderTestBase, SwapExecutorTestBase, Swapper {
+contract FxSaveWstEthSwapperTest is BaoTest, TokenHolderTestBase, SwapExecutorTestBase, UUPSOwnableTestBase, Swapper {
     function owner() public view override returns (address) {
         return address(this);
     }
@@ -168,6 +172,18 @@ contract FxSaveWstEthSwapperTest is BaoTest, TokenHolderTestBase, SwapExecutorTe
         MockCurveCryptoPool(payable(poolTricryptoLlama)).setRate(
             MockCurveCryptoPool(payable(poolTricryptoLlama)).rate() / 2
         );
+    }
+
+    function _uupsProxyTarget() internal view override returns (address) {
+        return swapperProxy;
+    }
+
+    function _uupsNonOwner() internal view override returns (address) {
+        return alice;
+    }
+
+    function _uupsCallInitialize(address target) internal override {
+        FxSaveWstEthSwapper_v1(target).initialize(address(1), address(2));
     }
 
     // All fixture tokens are 18 decimals BY CONSTRUCTION: the real route's tokens (fxSAVE,
@@ -295,12 +311,18 @@ contract FxSaveWstEthSwapperTest is BaoTest, TokenHolderTestBase, SwapExecutorTe
         assertEq(IERC20(wstETH).balanceOf(address(this)), amountOut);
     }
 
-    /// @notice Final-leg Curve min_dy reverts when minAmountOut exceeds mock output (forward).
+    /// @notice Final-leg Curve min_dy reverts when minAmountOut exceeds mock output (forward,
+    ///         the Tricrypto leg's Vyper-style "Slippage" wrapped in PoolCallFailed).
     function test_swap_fxSaveToWstEth_revertsOnSlippage() public {
         uint256 amountIn = 1 ether;
         _mintAndApprove(fxSAVE, swapperProxy, amountIn);
 
-        vm.expectRevert();
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                CurveExchangeLib.PoolCallFailed.selector,
+                abi.encodeWithSignature("Error(string)", "Slippage")
+            )
+        );
         ISwapExecutor(swapperProxy).swap(fxSAVE, wstETH, amountIn, amountIn + 1);
     }
 
@@ -320,12 +342,18 @@ contract FxSaveWstEthSwapperTest is BaoTest, TokenHolderTestBase, SwapExecutorTe
         assertEq(IERC20(fxSAVE).balanceOf(address(this)), amountOut);
     }
 
-    /// @notice Final-leg Curve min_dy reverts when minAmountOut exceeds mock output (reverse).
+    /// @notice Final-leg Curve min_dy reverts when minAmountOut exceeds mock output (reverse,
+    ///         the fxSAVE-pool leg's revert wrapped in PoolCallFailed).
     function test_swap_wstEthToFxSave_revertsOnSlippage() public {
         uint256 amountIn = 1 ether;
         _mintAndApprove(wstETH, swapperProxy, amountIn);
 
-        vm.expectRevert();
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                CurveExchangeLib.PoolCallFailed.selector,
+                abi.encodeWithSignature("Error(string)", "MockFxSaveScrvUsdPool: slippage")
+            )
+        );
         ISwapExecutor(swapperProxy).swap(wstETH, fxSAVE, amountIn, amountIn + 1);
     }
 
@@ -437,7 +465,12 @@ contract FxSaveWstEthSwapperTest is BaoTest, TokenHolderTestBase, SwapExecutorTe
         uint256 amountIn = 1 ether;
         _mintAndApprove(fxSAVE, swapperProxy, amountIn);
 
-        vm.expectRevert(); // PoolCallFailed wraps "MockFxSaveScrvUsdPool: forced revert"
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                CurveExchangeLib.PoolCallFailed.selector,
+                abi.encodeWithSignature("Error(string)", "MockFxSaveScrvUsdPool: forced revert")
+            )
+        );
         ISwapExecutor(swapperProxy).swap(fxSAVE, wstETH, amountIn, 0);
     }
 
@@ -497,7 +530,29 @@ contract FxSaveWstEthSwapperTest is BaoTest, TokenHolderTestBase, SwapExecutorTe
         bytes memory reentrantCall = abi.encodeCall(ISwapExecutor.swap, (fxSAVE, wstETH, amountIn, 0));
         MockFxSaveScrvUsdPool(poolFxSaveScrvUsd).setReentrantCall(swapperProxy, reentrantCall);
 
-        vm.expectRevert();
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                CurveExchangeLib.PoolCallFailed.selector,
+                abi.encodeWithSelector(ReentrancyGuardTransient.ReentrancyGuardReentrantCall.selector)
+            )
+        );
         ISwapExecutor(swapperProxy).swap(fxSAVE, wstETH, amountIn, 0);
+    }
+
+    /// @notice Re-entrant call from the Tricrypto pool is blocked by nonReentrant (reverse).
+    function test_swap_wstEthToFxSave_reentrancyGuard() public {
+        uint256 amountIn = 1 ether;
+        _mintAndApprove(wstETH, swapperProxy, amountIn * 2);
+
+        bytes memory reentrantCall = abi.encodeCall(ISwapExecutor.swap, (wstETH, fxSAVE, amountIn, 0));
+        MockCurveCryptoPool(payable(poolTricryptoLlama)).setReentrantCall(swapperProxy, reentrantCall);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                CurveExchangeLib.PoolCallFailed.selector,
+                abi.encodeWithSelector(ReentrancyGuardTransient.ReentrancyGuardReentrantCall.selector)
+            )
+        );
+        ISwapExecutor(swapperProxy).swap(wstETH, fxSAVE, amountIn, 0);
     }
 }
