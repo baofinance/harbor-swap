@@ -33,6 +33,7 @@ contract MockBalancerVault {
 
     uint256 public rate = 1e18;
     bool public shouldRevert;
+    bool public honourLimit = true;
     address public reentrantTarget;
     bytes public reentrantCalldata;
 
@@ -42,6 +43,13 @@ contract MockBalancerVault {
 
     function setShouldRevert(bool revert_) external {
         shouldRevert = revert_;
+    }
+
+    /// @notice `false` is the "liar" mode: under-deliver (per `rate`) while ignoring `limit`,
+    ///         reporting success — so tests can prove the executor's own balance-delta floor
+    ///         protects the caller.
+    function setHonourLimit(bool honour_) external {
+        honourLimit = honour_;
     }
 
     function setReentrantCall(address target_, bytes calldata calldata_) external {
@@ -62,13 +70,23 @@ contract MockBalancerVault {
 
         IERC20(singleSwap.assetIn).transferFrom(funds.sender, address(this), singleSwap.amount);
         amountCalculated = (singleSwap.amount * rate) / 1e18;
-        require(amountCalculated >= limit, "MockBalancerVault: slippage");
+        if (honourLimit) {
+            // The real Vault reverts Errors.SWAP_LIMIT as "BAL#507".
+            require(amountCalculated >= limit, "BAL#507");
+        }
         MockERC20(singleSwap.assetOut).mint(funds.recipient, amountCalculated);
 
         if (reentrantTarget != address(0)) {
             // solhint-disable-next-line avoid-low-level-calls
-            (bool ok, ) = reentrantTarget.call(reentrantCalldata);
-            require(ok, "MockBalancerVault: reentrant call failed");
+            (bool ok, bytes memory ret) = reentrantTarget.call(reentrantCalldata);
+            if (!ok) {
+                // Bubble the inner revert unchanged so tests can pin the exact error the
+                // re-entered contract raised (e.g. the reentrancy guard's).
+                // solhint-disable-next-line no-inline-assembly
+                assembly {
+                    revert(add(ret, 32), mload(ret))
+                }
+            }
         }
     }
 }

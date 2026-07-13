@@ -473,15 +473,7 @@ contract CurveSwapperTest is BaoTest, TokenHolderTestBase, SwapExecutorTestBase,
     /// @notice setRoute emits the full RouteSet event, including the pool family.
     function test_setRoute_emitsRouteSet() public {
         vm.expectEmit(true, true, true, true);
-        emit CurveSwapper_v1.RouteSet(
-            fromToken,
-            toToken,
-            pool,
-            CurveExchangeLib.CurvePoolKind.StableSwap,
-            I,
-            J,
-            false
-        );
+        emit CurveSwapper_v1.RouteSet(fromToken, toToken, pool, CurveExchangeLib.CurvePoolKind.StableSwap, I, J, false);
         _configureRoute();
     }
 
