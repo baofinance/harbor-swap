@@ -1,0 +1,99 @@
+# regression: better=lower abs=500 rel=0.001 display={:.3e}
+
+src/swap/Swapper_v1.sol:Swapper_v1
+| function name     |   max |   display |
+|-------------------|-------|-----------|
+| ROUTE_SETTER_ROLE |   239 | 2.390e+02 |
+| getRoute          |  5532 | 5.532e+03 |
+| getRoutesFrom     | 10260 | 1.026e+04 |
+| grantRoles        | 26330 | 2.633e+04 |
+| initialize        | 70340 | 7.034e+04 |
+| setRoute          | 51746 | 5.175e+04 |
+| swapExecutors     |  2806 | 2.806e+03 |
+| swapFeeRatios     |  2767 | 2.767e+03 |
+
+src/swap/aggregator/OneInchSwapper_v1.sol:OneInchSwapper_v1
+| function name   |    max |   display |
+|-----------------|--------|-----------|
+| ROUTER          |    282 | 2.820e+02 |
+| initialize      |  70270 | 7.027e+04 |
+| swap            | 209238 | 2.092e+05 |
+| sweep           |  37825 | 3.782e+04 |
+
+src/swap/executors/BalancerSwapper_v1.sol:BalancerSwapper_v1
+| function name     |    max |   display |
+|-------------------|--------|-----------|
+| ROUTE_SETTER_ROLE |    239 | 2.390e+02 |
+| VAULT             |    282 | 2.820e+02 |
+| grantRoles        |  26355 | 2.636e+04 |
+| initialize        |  70340 | 7.034e+04 |
+| poolIds           |   2767 | 2.767e+03 |
+| setRoute          |  28929 | 2.893e+04 |
+| swap              | 183800 | 1.838e+05 |
+
+src/swap/executors/CurveSwapper_v1.sol:CurveSwapper_v1
+| function name     |    max |   display |
+|-------------------|--------|-----------|
+| ROUTE_SETTER_ROLE |    262 | 2.620e+02 |
+| grantRoles        |  26330 | 2.633e+04 |
+| initialize        |  70296 | 7.030e+04 |
+| routes            |   7397 | 7.397e+03 |
+| setRoute          |  75320 | 7.532e+04 |
+| swap              | 191300 | 1.913e+05 |
+| sweep             |  37803 | 3.780e+04 |
+
+src/swap/executors/UniV3Swapper_v1.sol:UniV3Swapper_v1
+| function name    |    max |   display |
+|------------------|--------|-----------|
+| PATH_SETTER_ROLE |    283 | 2.830e+02 |
+| grantRoles       |  26330 | 2.633e+04 |
+| initialize       |  70296 | 7.030e+04 |
+| paths            |   9986 | 9.986e+03 |
+| setPath          |  95036 | 9.504e+04 |
+| swap             | 185682 | 1.857e+05 |
+
+test/mocks/MockAggregationRouterV6.sol:MockAggregationRouterV6
+| function name       |    max |   display |
+|---------------------|--------|-----------|
+| setPartialFillRatio |  26519 | 2.652e+04 |
+| setRate             |  26496 | 2.650e+04 |
+| setReentrantCall    | 417900 | 4.179e+05 |
+| setShouldRevert     |  43658 | 4.366e+04 |
+| swapSelector        |    204 | 2.040e+02 |
+
+test/mocks/MockBalancerVault.sol:MockBalancerVault
+| function name    |    max |   display |
+|------------------|--------|-----------|
+| setRate          |  26496 | 2.650e+04 |
+| setReentrantCall | 159094 | 1.591e+05 |
+
+test/mocks/MockCurvePool.sol:MockCurvePool
+| function name    |    max |   display |
+|------------------|--------|-----------|
+| setCoin          |  44280 | 4.428e+04 |
+| setRate          |  26497 | 2.650e+04 |
+| setReentrantCall | 159100 | 1.591e+05 |
+| setReturnVoid    |  43690 | 4.369e+04 |
+| setShouldRevert  |  43636 | 4.364e+04 |
+| setUnderlying    |  44210 | 4.421e+04 |
+
+test/mocks/MockERC4626Vault.sol:MockERC4626Vault
+| function name   |    max |   display |
+|-----------------|--------|-----------|
+| allowance       |   2777 | 2.777e+03 |
+| asset           |    324 | 3.240e+02 |
+| balanceOf       |   2594 | 2.594e+03 |
+| deposit         | 101764 | 1.018e+05 |
+
+test/mocks/MockFxSaveScrvUsdPool.sol:MockFxSaveScrvUsdPool
+| function name    |    max |   display |
+|------------------|--------|-----------|
+| setRate          |  21647 | 2.165e+04 |
+| setReentrantCall | 159161 | 1.592e+05 |
+| setShouldRevert  |  43658 | 4.366e+04 |
+
+test/mocks/MockUniV3Router.sol:MockUniV3Router
+| function name    |    max |   display |
+|------------------|--------|-----------|
+| setRate          |  26496 | 2.650e+04 |
+| setReentrantCall | 159200 | 1.592e+05 |
