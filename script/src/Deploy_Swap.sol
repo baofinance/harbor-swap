@@ -8,14 +8,14 @@ import {HarborSwapDeployStack} from "@harbor-swap-script/HarborSwapDeployStack.s
 import {ConfigSwap_ETH_mainnet} from "@harbor-swap-script/config/ConfigSwap_ETH_mainnet.sol";
 import {ISwapperConfig} from "@harbor-swap/interfaces/ISwapperConfig.sol";
 
-/// @notice Abstract deploy class for the full Harbor swap stack (registry + all executors + 1inch).
+/// @notice Abstract deploy class for the full Harbor swap stack (registry + all executors + aggregators).
 /// @dev Lean concrete scripts inherit this and add `is Script` for forge broadcast context.
 abstract contract Deploy_Swap is HarborSwapDeployStack, ConfigSwap_ETH_mainnet {
     function _uniV3RouterAddress() internal pure override returns (address) {
         return UNIV3_ROUTER_MAINNET;
     }
 
-    /// @notice Deploy registry + UniV3 + Curve + Balancer + 1inch via BaoFactory CREATE3.
+    /// @notice Deploy registry + UniV3 + Curve + Balancer + Velora + 1inch via BaoFactory CREATE3.
     ///         Transfers proxy ownership to the Harbor multisig and persists deployment state.
     function deploySwapInfrastructure(string memory saltPrefix, string memory network) internal {
         _setSaltPrefix(saltPrefix);

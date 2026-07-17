@@ -15,7 +15,7 @@ deployed with `new` in-script; UUPS proxies are always factory-deployed at deter
 
 | Repo | Delivers |
 |------|----------|
-| **harbor-swap** (this repo) | `Swapper_v1`, direct executors, `OneInchSwapper_v1`, deploy scripts, mock-based unit tests |
+| **harbor-swap** (this repo) | `Swapper_v1`, direct executors, `VeloraSwapper_v1`, `OneInchSwapper_v1`, deploy scripts |
 | [baofinance/harbor](https://github.com/baofinance/harbor) | Phase 1a — Minter, SP, SPM; `HarborDeployer`, BaoFactory (`@harbor-script/`) |
 | [baofinance/harbor-price-aggregators](https://github.com/baofinance/harbor-price-aggregators) | Phase 1b — oracles at CREATE3 addresses |
 | **Harbor Yield consumer repo** (separate) | `HarborYield_v1`, ACs, equiv vaults; imports `@harbor-swap/`; fork integration tests |
@@ -99,6 +99,7 @@ HY peg instances on the same network):
 | `uniV3Swapper` | `UniV3Swapper_v1` |
 | `curveSwapper` | `CurveSwapper_v1` |
 | `balancerSwapper` | `BalancerSwapper_v1` |
+| `veloraSwapper` | `VeloraSwapper_v1` |
 | `oneInchSwapper` | `OneInchSwapper_v1` |
 | `fxSaveWstEthSwapper` | `FxSaveWstEthSwapper_v1` (ETH mainnet fxSAVE ↔ wstETH composite) |
 
@@ -132,7 +133,7 @@ repo.
 | Scenario | Path | Entrypoint | When |
 |----------|------|------------|------|
 | **Urgent / peg-critical** | Direct executor | `HarborYield_v1.distribute()` → `ISwapExecutor.swap` | Residual wCOLn routing during AC distribution; must be predictable gas, no off-chain router dependency |
-| **Low-urgency / long-tail** | Aggregator (1inch v6) | `HarborYield_v1.redistribute` | Scheduled rebalances, illiquid pairs, multi-pool Curve/Balancer chains, exotic venues |
+| **Low-urgency / long-tail** | Aggregator (Velora Augustus v6.2) | `HarborYield_v1.redistribute` | Scheduled rebalances, illiquid pairs, multi-pool Curve/Balancer chains, exotic venues |
 
 **Rule:** `distribute()` never calls the aggregator. Untrusted keeper calldata stays out of
 the hot path. `redistribute` unwinds source-vault shares, swaps through the keeper's aggregator, and winds the
@@ -151,6 +152,7 @@ All swap proxies share the deploy script salt prefix (e.g. `harbor_v1::eth::`) a
 | `uniV3Swapper` | `UniV3Swapper_v1` | Uniswap v3 `exactInput` (single- or multi-hop) |
 | `curveSwapper` | `CurveSwapper_v1` | Curve StableSwap `exchange` / `exchange_underlying` |
 | `balancerSwapper` | `BalancerSwapper_v1` | Balancer V2 Vault single-swap |
+| `veloraSwapper` | `VeloraSwapper_v1` | Velora Augustus v6.2 fixed-router adapter (aggregator only) |
 | `oneInchSwapper` | `OneInchSwapper_v1` | 1inch v6 fixed-router adapter (aggregator only) |
 | `fxSaveWstEthSwapper` | `FxSaveWstEthSwapper_v1` | fxSAVE → wstETH composite (Curve ×2 + scrvUSD redeem; ETH mainnet) |
 
@@ -162,6 +164,7 @@ Chain constants:
 |----------|---------|------|
 | Uniswap v3 SwapRouter (mainnet) | `0xE592427A0AEce92De3Edee1F18E0157C05861564` | [`ConfigSwap_ETH_mainnet.sol`](src/config/ConfigSwap_ETH_mainnet.sol) |
 | Balancer V2 Vault (all major chains) | `0xBA12222222228d8Ba445958a75a0704d566BF2C8` | [`ConfigBalancer.sol`](src/config/ConfigBalancer.sol) |
+| Velora Augustus v6.2 (same address on all Velora chains) | `0x6A000F20005980200259B80c5102003040001068` | [`ConfigVelora.sol`](src/config/ConfigVelora.sol) |
 | 1inch AggregationRouterV6 (CREATE2, all major chains) | `0x111111125421cA6dc452d289314280a0f8842A65` | [`ConfigOneInch.sol`](src/config/ConfigOneInch.sol) |
 
 Curve has **no canonical router** — each pair points at a specific pool contract.
@@ -174,7 +177,7 @@ Swap deployment is orchestrated by [`HarborSwapDeployStack`](src/HarborSwapDeplo
 
 | Script | When | What it deploys |
 |--------|------|-----------------|
-| [`Deploy_Swap.s.sol`](../Deploy_Swap.s.sol) | Swap stack only, shared infra before any HY peg | Registry + UniV3 + Curve + Balancer + 1inch + fxSAVE→wstETH |
+| [`Deploy_Swap.s.sol`](../Deploy_Swap.s.sol) | Swap stack only, shared infra before any HY peg | Registry + UniV3 + Curve + Balancer + Velora + 1inch + fxSAVE→wstETH |
 
 **Standalone swap stack** (this repo):
 
@@ -188,14 +191,15 @@ which runs:
 ```
 Phase 2a — harbor-swap deploy script (BaoFactory operator)
   1. _setSaltPrefix(saltPrefix)
-  2. deploySwapStack(state, fullOpts)  → swapper + uniV3 + curve + balancer + oneInch
+  2. deploySwapStack(state, fullOpts)  → swapper + uniV3 + curve + balancer + velora + oneInch
   3. deployFxSaveWstEthSwapper(state)  → fxSAVE ↔ wstETH composite executor
   4. configureFxSaveWstEthRoutes()     → registry Layer 2 for both directions
   5. flush + _transferAllOwnerships()  → Safe receives proxy ownership
 ```
 
 Optional executors in `deploySwapStack` are controlled by `SwapDeployOptions`
-(`deployCurve`, `deployBalancer`, `deployOneInch`). `Deploy_Swap` enables all three.
+(`deployCurve`, `deployBalancer`, `deployVelora`, `deployOneInch`). `Deploy_Swap` enables all four.
+Use `_veloraAggregatorDeployOptions()` when only the primary aggregator is needed.
 
 **Harbor Yield consumer repo** then deploys HY infrastructure (Phase 2b) and wires routes
 via `_configureSwapRoutes` — typically registry + UniV3 only on default deploy, or the full
@@ -329,55 +333,60 @@ consumer reaches it only through `HarborYield_v1.redistribute`, which takes the 
 keeper's `routerData` as call parameters.
 
 ```solidity
-// 1. Deploy adapter (once per network, shared across pegs) — harbor-swap:
-deployOneInchSwapper(state);
-address oneInch = _predictAddress("oneInchSwapper");
+// 1. Deploy primary aggregator (once per network, shared across pegs) — harbor-swap:
+deployVeloraSwapper(state);
+address velora = _predictAddress("veloraSwapper");
+
+// Optional: deploy 1inch as a secondary adapter when needed:
+// deployOneInchSwapper(state);
+// address oneInch = _predictAddress("oneInchSwapper");
 
 // 2. Grant keeper role (per HY peg instance) — consumer repo:
 HarborYield_v1(hy).grantRoles(keeperAddress, HarborYield_v1(hy).REDISTRIBUTOR_ROLE());
 ```
 
-There is no `setAggregatorSwapper` step — HY holds no aggregator address. The keeper passes the adapter (e.g.
-the predicted `oneInch` address) on each `redistribute` call, so multiple third-party adapters can coexist
-without any HY change.
+There is no `setAggregatorSwapper` step — HY holds no aggregator address. The keeper passes whichever
+adapter it used to build `routerData` (default: `velora`; optional: `oneInch`) on each `redistribute` call, so multiple
+third-party adapters can coexist without any HY change.
 
-**Authorization model (intentional tradeoff):** `OneInchSwapper_v1.swap` is open-access — it only spends
+**Authorization model (intentional tradeoff):** aggregator `swap` is open-access — it only spends
 `msg.sender`'s pre-approved balance. The role gate (`REDISTRIBUTOR_ROLE`) lives on `HarborYield_v1.redistribute`,
 not on the adapter.
 
-**Keeper call:** the keeper names the tokens, the adapter, and the route on a single `redistribute` call (see
-the Harbor Yield keeper runbook for the full off-chain workflow):
+**Keeper call:** the keeper names the tokens, the adapter, and the route on a single `redistribute` call:
 
 ```solidity
 HarborYield_v1(hy).redistribute(
     fromVault, fromToken, toVault, toToken,
-    shares,        // source-vault shares to move (HY unwinds them to fromToken)
-    minToAssets,   // floor on the target landing — the strict-vs-partial lever
-    oneInch,       // the aggregator adapter for the swap leg
-    routerData     // opaque 1inch v6 calldata from off-chain pathfinder
+    shares,
+    minToAssets,
+    velora,        // or oneInch — must match how routerData was built
+    routerData
 );
 ```
 
-Requirements:
+**Velora `routerData`:** Market API (`GET /prices` → `POST /transactions/:chainId`). Allowlist:
+`VeloraV62Selectors.SWAP_EXACT_AMOUNT_IN` (`0xe3ead59e`) or `SWAP_EXACT_AMOUNT_OUT` (`0x7f457675`).
+Router: `0x6A000F…1068` ([`VeloraV62Selectors.sol`](../src/swap/aggregator/VeloraV62Selectors.sol)).
+
+**1inch `routerData`:** Swap API / Pathfinder (requires dev-portal KYC). Allowlist:
+`OneInchV6Selectors.SWAP` (`0x07ed2379`). Router: `0x1111…2A65`
+([`OneInchV6Selectors.sol`](../src/swap/aggregator/OneInchV6Selectors.sol)).
+
+Shared requirements:
 
 - HY sources the swap input by unwinding `shares` of `fromVault` down to `fromToken` inside the call — it needs
   no idle balance.
-- `routerData` must target the immutable router baked into `OneInchSwapper_v1` (`0x1111…2A65` on production).
-  Building calldata is an off-chain concern (1inch Swap API / Pathfinder).
-- **Allowed calldata (Option A):** first four bytes must be `OneInchV6Selectors.SWAP` (`0x07ed2379`,
-  `swap(address,tuple,bytes)`). Other v6 entrypoints (`unoswap`, `clipperSwap`, `fillOrder`, …) revert with
-  `DisallowedRouterSelector`. Expand the allowlist in
-  [`OneInchV6Selectors.sol`](../src/swap/aggregator/OneInchV6Selectors.sol) only after ops confirms keeper usage.
+- `routerData` must target the immutable router baked into the named adapter. Building calldata is off-chain.
 - Slippage is bounded by `redistribute`'s end-to-end value floor (`minToAssets` plus the vault's `swapSlippage`);
   HY passes `minAmountOut = 0` to the adapter because the floor is the real guard. A malicious or wrong route
   can't drain HY — the atomic call reverts if the landed value misses the floor.
 - Disable the aggregator path for a keeper by revoking `REDISTRIBUTOR_ROLE`; there is no on-chain aggregator
   switch to flip.
 
-**Upgrading `OneInchSwapper_v1`:** deploy a new implementation via `Swapper.sol` and UUPS-upgrade the existing
-`oneInchSwapper` proxy (the router immutable is fixed at implementation construction time). Because the keeper
-names the adapter per call, a new adapter at a different address simply becomes another address the keeper can
-pass — no HY change.
+**Upgrading an adapter:** deploy a new implementation via `Swapper.sol` and UUPS-upgrade the existing proxy.
+Because the keeper names the adapter per call, a new adapter at a different address simply becomes another
+address the keeper can pass — no HY change.
 
 ---
 
@@ -486,7 +495,7 @@ Swapper_v1(swapper).swapFeeRatios(from, to);
 // Swapper_v1:     RouteUpdated(from, to, executor, feeRatio)
 // UniV3Swapper:   PathSet(from, to, path)
 // Curve/Balancer: RouteSet(...)
-// OneInchSwapper: AggregatorSwap(...) on each swap
+// VeloraSwapper / OneInchSwapper: AggregatorSwap(...) on each swap
 
 // Executors
 UniV3Swapper_v1(uniV3).paths(from, to).length > 0;
@@ -496,6 +505,7 @@ BalancerSwapper_v1(bal).poolIds(from, to) != bytes32(0);
 
 // Aggregator (consumer repo)
 HarborYield_v1(hy).hasAnyRole(keeper, HarborYield_v1(hy).REDISTRIBUTOR_ROLE());
+VeloraSwapper_v1(velora).ROUTER() == 0x6A000F20005980200259B80c5102003040001068;
 OneInchSwapper_v1(oneInch).ROUTER() == 0x111111125421cA6dc452d289314280a0f8842A65;
 ```
 

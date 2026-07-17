@@ -1,0 +1,101 @@
+// SPDX-License-Identifier: MIT
+pragma solidity >=0.8.28 <0.9.0;
+
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+
+import {MockERC20} from "@bao-test/mocks/MockERC20.sol";
+import {VeloraV62Selectors} from "@harbor-swap/aggregator/VeloraV62Selectors.sol";
+
+/// @notice Test double for Velora Augustus v6.2 `swapExactAmountIn` / `swapExactAmountOut`.
+///         Production keepers supply Market API-built calldata; unit tests use this shape.
+contract MockAugustusV62 {
+    /// @notice Mirrors the v6.2 router GenericData tuple used in keeper calldata.
+    struct GenericData {
+        address srcToken;
+        address destToken;
+        uint256 fromAmount;
+        uint256 toAmount;
+        uint256 quotedAmount;
+        bytes32 metadata;
+        address beneficiary;
+    }
+
+    uint256 public rate = 1e18;
+    bool public shouldRevert;
+    uint256 public partialFillRatio = 1e18;
+    address public reentrantTarget;
+    bytes public reentrantCalldata;
+
+    function setRate(uint256 rate_) external {
+        rate = rate_;
+    }
+
+    function setShouldRevert(bool revert_) external {
+        shouldRevert = revert_;
+    }
+
+    function setPartialFillRatio(uint256 ratio_) external {
+        partialFillRatio = ratio_;
+    }
+
+    function setReentrantCall(address target_, bytes calldata calldata_) external {
+        reentrantTarget = target_;
+        reentrantCalldata = calldata_;
+    }
+
+    /// @notice Velora v6.2 `swapExactAmountIn` entrypoint.
+    function swapExactAmountIn(
+        address,
+        GenericData calldata swapData,
+        uint256,
+        bytes calldata,
+        bytes calldata
+    ) external payable returns (uint256 receivedAmount, uint256 paraswapShare, uint256 partnerShare) {
+        (, receivedAmount) = _fill(swapData.srcToken, swapData.destToken, swapData.fromAmount);
+        paraswapShare = 0;
+        partnerShare = 0;
+    }
+
+    /// @notice Velora v6.2 `swapExactAmountOut` entrypoint.
+    function swapExactAmountOut(
+        address,
+        GenericData calldata swapData,
+        uint256,
+        bytes calldata,
+        bytes calldata
+    ) external payable returns (uint256 spentAmount, uint256 receivedAmount, uint256 paraswapShare, uint256 partnerShare) {
+        (spentAmount, receivedAmount) = _fill(swapData.srcToken, swapData.destToken, swapData.fromAmount);
+        paraswapShare = 0;
+        partnerShare = 0;
+    }
+
+    function _fill(
+        address fromToken,
+        address toToken,
+        uint256 fromAmount
+    ) private returns (uint256 spentAmount, uint256 receivedAmount) {
+        if (shouldRevert) {
+            revert("MockAugustusV62: forced revert");
+        }
+
+        spentAmount = (fromAmount * partialFillRatio) / 1e18;
+        IERC20(fromToken).transferFrom(msg.sender, address(this), spentAmount);
+        receivedAmount = (spentAmount * rate) / 1e18;
+        MockERC20(toToken).mint(msg.sender, receivedAmount);
+
+        if (reentrantTarget != address(0)) {
+            // solhint-disable-next-line avoid-low-level-calls
+            (bool ok, ) = reentrantTarget.call(reentrantCalldata);
+            require(ok, "MockAugustusV62: reentrant call failed");
+        }
+    }
+
+    /// @dev Confirms this mock exposes the same selectors the adapter allowlists.
+    function swapExactAmountInSelector() external pure returns (bytes4) {
+        return VeloraV62Selectors.SWAP_EXACT_AMOUNT_IN;
+    }
+
+    function swapExactAmountOutSelector() external pure returns (bytes4) {
+        return VeloraV62Selectors.SWAP_EXACT_AMOUNT_OUT;
+    }
+}

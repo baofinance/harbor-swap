@@ -1,7 +1,7 @@
 # harbor-swap
 
 Harbor swap registry (`Swapper_v1`), direct DEX executors (UniV3, Curve, Balancer, composite
-routes), and the 1inch v6 aggregator adapter. Deployed via BaoFactory CREATE3; consumed by
+routes), and aggregator adapters (Velora Augustus v6.2 primary; 1inch v6 optional). Deployed via BaoFactory CREATE3; consumed by
 Harbor Yield and other Harbor products.
 
 ## Docs
@@ -17,17 +17,20 @@ forge build
 forge test --match-path "test/swap/**"
 ```
 
-**Test scope:** mock-based unit tests only (71 tests under `test/swap/`). Mainnet fork
+**Test scope:** mock-based unit tests only (107 tests under `test/swap/`). Mainnet fork
 integration (full ETH stack + oracle mocks) lives in the Harbor Yield consumer repo.
 
-**Aggregator calldata:** Harbor Option A — only 1inch v6 `swap` selector `0x07ed2379` is
-accepted (`OneInchV6Selectors.SWAP`). Build via 1inch Swap API / Pathfinder.
+**Aggregator calldata:** Harbor Option A — per adapter:
+- **Velora (primary):** `swapExactAmountIn` (`0xe3ead59e`) or `swapExactAmountOut` (`0x7f457675`) via Market API
+- **1inch (optional):** `swap` (`0x07ed2379`) via Swap API / Pathfinder (requires dev-portal KYC)
+
+Keepers pass the adapter address per `redistribute` call. Deploy Velora with `_veloraAggregatorDeployOptions()` or the full stack with `_fullSwapDeployOptions()`.
 
 **Known design tradeoffs** (documented in `src/swap/README.md`):
 
 - `FxSaveWstEthSwapper_v1` intermediate Curve legs use `min_dy = 0`; only final wstETH
   output is bounded by the consumer's `minAmountOut`. Route changes require impl upgrade.
-- `OneInchSwapper_v1` is open-access; authorization lives on the consumer's `redistribute`
+- Aggregator adapters are open-access; authorization lives on the consumer's `redistribute`
   `REDISTRIBUTOR_ROLE` gate. Selector allowlist does not validate swap parameters.
 
 ## License

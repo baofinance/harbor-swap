@@ -5,10 +5,14 @@ pragma solidity >=0.8.28 <0.9.0;
 /// @notice Calldata-driven swap interface for off-chain-routed aggregator adapters.
 ///         Distinct from ISwapExecutor because the caller supplies opaque router calldata
 ///         per-swap (built off-chain by a keeper). The adapter targets one immutable router
-///         (e.g. 1inch v6) and is intended for low-urgency, governance-gated rebalances
-///         that cannot be expressed as a stored direct-executor route.
+///         (e.g. Velora Augustus v6.2) and is intended for low-urgency, governance-gated
+///         rebalances that cannot be expressed as a stored direct-executor route.
 /// @dev Output amount is verified by post-call balance delta against `minAmountOut`. Any
-///      unspent `fromToken` (1inch v6 `_PARTIAL_FILL` flag) is refunded to `msg.sender`.
+///      unspent `fromToken` is refunded to `msg.sender` (the adapter caller — not the router
+///      and not the keeper's EOA). In HarborYield `redistribute`, `msg.sender` is HarborYield
+///      itself; VaultManager then re-winds that refund into `fromVault` as vault shares,
+///      so partial fills return to the source ERC4626 vault rather than stranding at HY or
+///      paying the role holder.
 interface IAggregatorSwapper {
     /// @notice Emitted on every successful swap.
     event AggregatorSwap(
@@ -26,7 +30,7 @@ interface IAggregatorSwapper {
     /// @notice `routerData` is shorter than four bytes (no function selector).
     error RouterCalldataTooShort();
 
-    /// @notice `routerData` selector is not on the Harbor 1inch v6 allowlist.
+    /// @notice `routerData` selector is not on the Harbor aggregator allowlist.
     error DisallowedRouterSelector(bytes4 selector);
 
     /// @notice Post-call output is below the slippage floor.
@@ -36,6 +40,8 @@ interface IAggregatorSwapper {
     ///         Pulls `amountIn` of `fromToken` from `msg.sender`, approves the immutable
     ///         router, calls `router.call(routerData)`, refunds any unspent `fromToken`
     ///         back to `msg.sender`, then delivers the `toToken` proceeds to `msg.sender`.
+    ///         HarborYield `redistribute` is the primary caller: refunds land on HarborYield
+    ///         and are re-deposited into `fromVault` by VaultManager (see harbor-yield).
     /// @param fromToken The token to swap from.
     /// @param toToken The token to swap to.
     /// @param amountIn The amount of `fromToken` to pull from `msg.sender`.
@@ -50,7 +56,7 @@ interface IAggregatorSwapper {
         bytes calldata routerData
     ) external returns (uint256 amountOut);
 
-    /// @notice The immutable router this adapter calls (e.g. 1inch AggregationRouterV6).
+    /// @notice The immutable router this adapter calls (e.g. Velora Augustus v6.2).
     // solhint-disable-next-line func-name-mixedcase
     function ROUTER() external view returns (address);
 }

@@ -11,13 +11,12 @@ import {TokenHolder_v2} from "@bao/TokenHolder_v2.sol";
 import {Token} from "@bao/Token.sol";
 
 import {IAggregatorSwapper} from "@harbor-swap/aggregator/IAggregatorSwapper.sol";
-import {OneInchV6Selectors} from "@harbor-swap/aggregator/OneInchV6Selectors.sol";
+import {VeloraV62Selectors} from "@harbor-swap/aggregator/VeloraV62Selectors.sol";
 
-/// @title OneInchSwapper_v1
+/// @title VeloraSwapper_v1
 /// @notice Aggregator adapter that executes opaque keeper-built calldata against a fixed
-///         router (1inch AggregationRouterV6 on production). Slippage is enforced by
-///         post-call balance delta; any unspent `fromToken` (1inch `_PARTIAL_FILL`) is
-///         refunded to the caller.
+///         router (Velora Augustus v6.2 on production). Slippage is enforced by post-call
+///         balance delta; any unspent `fromToken` is refunded to the caller.
 /// @dev Security properties:
 ///      - Router is an immutable constructor arg, never caller-supplied.
 ///      - Approval is forced to `amountIn` before the call and reset to zero after.
@@ -26,18 +25,19 @@ import {OneInchV6Selectors} from "@harbor-swap/aggregator/OneInchV6Selectors.sol
 ///        only ever spends `msg.sender`'s pre-approved balance and returns proceeds to
 ///        `msg.sender`. Authorization gating lives at the consumer (e.g.
 ///        `HarborYield_v1.redistribute` role gate).
-///      - `routerData` must be at least 4 bytes and start with `OneInchV6Selectors.SWAP`
-///        (1inch v6 `swap(address,tuple,bytes)`). Other router entrypoints are rejected.
+///      - `routerData` must be at least 4 bytes and start with a Velora v6.2 allowlisted
+///        selector (`swapExactAmountIn` or `swapExactAmountOut`). Other router entrypoints
+///        are rejected.
 ///      - This adapter is upgradeable (UUPS) so the router immutable can be repointed
 ///        across major aggregator upgrades by deploying a new implementation.
 /// @custom:oz-upgrades-unsafe-allow state-variable-immutable constructor
 // slither-disable-next-line missing-inheritance — false positive: initialize(address,address) ABI matches IHarborYieldEntryInit by coincidence; the two addresses are (deployerOwner, pendingOwner), not entry init args
-contract OneInchSwapper_v1 is// solhint-disable-line contract-name-capwords
+contract VeloraSwapper_v1 is// solhint-disable-line contract-name-capwords
  IAggregatorSwapper, HarborOwnableRoles, Initializable, UUPSUpgradeable, TokenHolder_v2 {
     using SafeERC20 for IERC20;
 
-    /// @notice The fixed router this adapter calls. On most chains 1inch v6 lives at the
-    ///         CREATE2-deterministic address 0x111111125421cA6dC452d289314280a0f8842A65.
+    /// @notice The fixed router this adapter calls. Augustus v6.2 lives at the same
+    ///         address on every supported Velora chain.
     /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
     address public immutable ROUTER; // solhint-disable-line immutable-vars-naming
 
@@ -101,13 +101,13 @@ contract OneInchSwapper_v1 is// solhint-disable-line contract-name-capwords
         emit AggregatorSwap(msg.sender, fromToken, toToken, amountIn, amountOut, refundedIn);
     }
 
-    /// @dev Harbor Option A: only 1inch v6 `swap(address,tuple,bytes)` calldata from the Swap API.
+    /// @dev Harbor Option A: only Velora v6.2 Market API swap entrypoints.
     function _validateRouterData(bytes calldata routerData) private pure {
         if (routerData.length < 4) {
             revert RouterCalldataTooShort();
         }
         bytes4 selector = bytes4(routerData[:4]);
-        if (selector != OneInchV6Selectors.SWAP) {
+        if (selector != VeloraV62Selectors.SWAP_EXACT_AMOUNT_IN && selector != VeloraV62Selectors.SWAP_EXACT_AMOUNT_OUT) {
             revert DisallowedRouterSelector(selector);
         }
     }
