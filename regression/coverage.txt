@@ -6,10 +6,10 @@
 | src/swap/SwapExecutorBase.sol                 | ✓ 100% (19/19)   | ✓ 100% (22/22)   | ✓ 100% (5/5)   | ✓ 100% (1/1)     |
 | src/swap/Swapper_v1.sol                       | X  96% (25/26)   | ✓ 100% (22/22)   | ✓ 100% (0/0)   | X  89% (8/9)     |
 | src/swap/aggregator/OneInchSwapper_v1.sol     | ✓ 100% (24/24)   | ✓ 100% (19/19)   | ✓ 100% (3/3)   | ✓ 100% (6/6)     |
-| src/swap/aggregator/VeloraSwapper_v1.sol      | ✓ 100% (24/24)   | ✓ 100% (21/21)   | ✓ 100% (3/3)   | ✓ 100% (6/6)     |
+| src/swap/aggregator/VeloraSwapper_v1.sol      | ✓ 100% (25/25)   | ✓ 100% (21/21)   | ✓ 100% (3/3)   | ✓ 100% (6/6)     |
 | src/swap/executors/BalancerSwapper_v1.sol     | ✓ 100% (23/23)   | ✓ 100% (15/15)   | ✓ 100% (1/1)   | ✓ 100% (8/8)     |
 | src/swap/executors/CurveExchangeLib.sol       | ✓ 100% (8/8)     | ✓ 100% (8/8)     | X  67% (2/3)   | ✓ 100% (1/1)     |
 | src/swap/executors/CurveSwapper_v1.sol        | ✓ 100% (25/25)   | ✓ 100% (21/21)   | ✓ 100% (3/3)   | ✓ 100% (8/8)     |
 | src/swap/executors/FxSaveWstEthSwapper_v1.sol | ✓ 100% (65/65)   | ✓ 100% (61/61)   | ✓ 100% (8/8)   | ✓ 100% (20/20)   |
 | src/swap/executors/UniV3Swapper_v1.sol        | ✓ 100% (22/22)   | ✓ 100% (14/14)   | ✓ 100% (1/1)   | ✓ 100% (8/8)     |
-| Total                                         | X  80% (528/657) | X  82% (448/544) | X  81% (65/80) | X  80% (142/178) |
+| Total                                         | X  80% (529/658) | X  82% (448/544) | X  81% (65/80) | X  80% (142/178) |
