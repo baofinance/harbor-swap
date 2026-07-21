@@ -1,4 +1,4 @@
-# regression: better=lower abs=500 rel=0.001 display={:.3e} ratchet=on
+# regression: better=lower abs=500 rel=0.001 display={:.3e}
 
 src/swap/Swapper_v1.sol:Swapper_v1
 | function name     |   max |   display |
