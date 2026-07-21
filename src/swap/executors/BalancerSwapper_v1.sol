@@ -3,14 +3,15 @@ pragma solidity 0.8.30;
 
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
-import {ReentrancyGuardTransient} from "@openzeppelin/contracts/utils/ReentrancyGuardTransient.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 import {HarborOwnableRoles} from "@bao/HarborOwnableRoles.sol";
+import {TokenHolder_v2} from "@bao/TokenHolder_v2.sol";
 import {Token} from "@bao/Token.sol";
 
 import {ISwapExecutor} from "@harbor-swap/interfaces/ISwapExecutor.sol";
+import {SwapExecutorBase} from "@harbor-swap/SwapExecutorBase.sol";
 
 /// @notice Minimal subset of Balancer V2 IVault required for single-asset swaps.
 /// @dev Full ABI lives in @balancer-labs/v2-interfaces; we redeclare the swap-related
@@ -56,8 +57,9 @@ interface IBalancerV2Vault {
 ///        Vault is the only approval target the executor ever holds, and we reset the
 ///        allowance to zero after each call.
 ///      - We use `SwapKind.GIVEN_IN` exclusively: `amount = amountIn`, `limit = minOut`.
-///        The Vault returns `amountCalculated = amountOut`, but we also reconcile via
-///        post-call balance delta as a defence-in-depth check.
+///        The Vault's returned `amountCalculated` is IGNORED: the SwapExecutorBase envelope
+///        measures the output as a balance delta and pays out exactly that, so a Vault that
+///        misreported its return value could not affect what the caller receives.
 ///      - `FundManagement.fromInternalBalance / toInternalBalance` are both false:
 ///        Harbor never holds Vault internal balance, so external transfers in/out
 ///        keep accounting trivial.
@@ -67,7 +69,7 @@ interface IBalancerV2Vault {
 /// @custom:oz-upgrades-unsafe-allow state-variable-immutable constructor
 // slither-disable-next-line missing-inheritance — false positive: initialize(address,address) matches IHarborYieldEntryInit by coincidence; the two addresses are (deployerOwner, pendingOwner)
 contract BalancerSwapper_v1 is// solhint-disable-line contract-name-capwords
- ISwapExecutor, HarborOwnableRoles, Initializable, UUPSUpgradeable, ReentrancyGuardTransient {
+ ISwapExecutor, HarborOwnableRoles, Initializable, UUPSUpgradeable, TokenHolder_v2, SwapExecutorBase {
     using SafeERC20 for IERC20;
 
     /// @notice Role allowing an address to configure Balancer routes via setRoute.
@@ -78,7 +80,6 @@ contract BalancerSwapper_v1 is// solhint-disable-line contract-name-capwords
     address public immutable VAULT; // solhint-disable-line immutable-vars-naming
 
     error NoRouteConfigured(address fromToken, address toToken);
-    error InsufficientOutput(uint256 amountOut, uint256 minAmountOut);
 
     event RouteSet(address indexed fromToken, address indexed toToken, bytes32 poolId);
 
@@ -127,25 +128,37 @@ contract BalancerSwapper_v1 is// solhint-disable-line contract-name-capwords
     }
 
     /// @inheritdoc ISwapExecutor
-    // slither-disable-next-line timestamp — deadline = block.timestamp matches UniV3Swapper rationale: slippage is already enforced by minAmountOut and balance delta
     function swap(
         address fromToken,
         address toToken,
         uint256 amountIn,
         uint256 minAmountOut
     ) external override nonReentrant returns (uint256 amountOut) {
+        (amountOut, ) = _swapEnvelope(fromToken, toToken, amountIn, minAmountOut, "");
+    }
+
+    /// @dev The Vault leg: resolve the governance-set poolId, approve exactly `amountIn`,
+    ///      single-swap GIVEN_IN to this contract, reset the approval. `minAmountOut` is
+    ///      forwarded as the Vault's own `limit` for an early revert; the envelope re-checks
+    ///      it authoritatively against the balance delta, so the Vault's return value is not
+    ///      used.
+    // slither-disable-next-line timestamp — deadline = block.timestamp matches UniV3Swapper rationale: slippage is already enforced by minAmountOut and balance delta
+    function _execute(
+        address fromToken,
+        address toToken,
+        uint256 amountIn,
+        uint256 minAmountOut,
+        bytes memory
+    ) internal override {
         bytes32 poolId = _getBalancerSwapperStorage().poolIds[fromToken][toToken];
         if (poolId == bytes32(0)) {
             revert NoRouteConfigured(fromToken, toToken);
         }
 
-        IERC20(fromToken).safeTransferFrom(msg.sender, address(this), amountIn);
-
-        uint256 toBalanceBefore = IERC20(toToken).balanceOf(address(this));
-
         IERC20(fromToken).forceApprove(VAULT, amountIn);
 
-        amountOut = IBalancerV2Vault(VAULT).swap(
+        // slither-disable-next-line unused-return — the envelope measures the output as a balance delta
+        IBalancerV2Vault(VAULT).swap(
             IBalancerV2Vault.SingleSwap({
                 poolId: poolId,
                 kind: IBalancerV2Vault.SwapKind.GIVEN_IN,
@@ -165,15 +178,6 @@ contract BalancerSwapper_v1 is// solhint-disable-line contract-name-capwords
         );
 
         IERC20(fromToken).forceApprove(VAULT, 0);
-
-        // Defence in depth: confirm the Vault's reported amount equals balance delta.
-        uint256 received = IERC20(toToken).balanceOf(address(this)) - toBalanceBefore;
-        if (received < minAmountOut || received < amountOut) {
-            revert InsufficientOutput(received, minAmountOut);
-        }
-        amountOut = received;
-
-        IERC20(toToken).safeTransfer(msg.sender, amountOut);
     }
 
     function _authorizeUpgrade(address) internal override onlyOwner {} // solhint-disable-line no-empty-blocks

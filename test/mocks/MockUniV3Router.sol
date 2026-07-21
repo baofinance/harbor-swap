@@ -12,6 +12,7 @@ import {MockERC20} from "@bao-test/mocks/MockERC20.sol";
 contract MockUniV3Router {
     uint256 public rate = 1e18;
     bool public shouldRevert;
+    bool public honourMin = true;
     address public reentrantTarget;
     bytes public reentrantCalldata;
 
@@ -21,6 +22,13 @@ contract MockUniV3Router {
 
     function setShouldRevert(bool revert_) external {
         shouldRevert = revert_;
+    }
+
+    /// @notice `false` is the "liar" mode: under-deliver (per `rate`) while ignoring
+    ///         `amountOutMinimum`, reporting success — so tests can prove the executor's own
+    ///         balance-delta floor protects the caller.
+    function setHonourMin(bool honour_) external {
+        honourMin = honour_;
     }
 
     function setReentrantCall(address target_, bytes calldata calldata_) external {
@@ -44,13 +52,22 @@ contract MockUniV3Router {
 
         IERC20(tokenIn).transferFrom(msg.sender, address(this), params.amountIn);
         amountOut = (params.amountIn * rate) / 1e18;
-        require(amountOut >= params.amountOutMinimum, "MockUniV3Router: slippage");
+        if (honourMin) {
+            require(amountOut >= params.amountOutMinimum, "Too little received");
+        }
         MockERC20(tokenOut).mint(params.recipient, amountOut);
 
         if (reentrantTarget != address(0)) {
             // solhint-disable-next-line avoid-low-level-calls
-            (bool ok, ) = reentrantTarget.call(reentrantCalldata);
-            require(ok, "MockUniV3Router: reentrant call failed");
+            (bool ok, bytes memory ret) = reentrantTarget.call(reentrantCalldata);
+            if (!ok) {
+                // Bubble the inner revert unchanged so tests can pin the exact error the
+                // re-entered contract raised (e.g. the reentrancy guard's).
+                // solhint-disable-next-line no-inline-assembly
+                assembly {
+                    revert(add(ret, 32), mload(ret))
+                }
+            }
         }
     }
 

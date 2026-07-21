@@ -31,14 +31,18 @@ src/swap/
     ConfigFxSaveWstEthRoute_ETH_mainnet.sol  Mainnet route constants for FxSaveWstEthSwapper
   aggregator/
     IAggregatorSwapper.sol          swap(from, to, in, minOut, bytes) interface
-    VeloraSwapper_v1.sol           Fixed-router (Velora Augustus v6.2) adapter
+    VeloraSwapper_v1.sol           Fixed-router (Velora Augustus v6.2) adapter on SwapExecutorBase
     VeloraV62Selectors.sol         Allowed Augustus v6.2 Market API selectors
-    OneInchSwapper_v1.sol          Fixed-router (1inch v6) adapter
+    OneInchSwapper_v1.sol          Fixed-router (1inch v6) adapter on SwapExecutorBase
     OneInchV6Selectors.sol         Allowed 1inch v6 Swap API selectors
+  SwapExecutorBase.sol              Shared envelope: SameToken, exact-pull, ZeroAmountOut,
+                                    authoritative minAmountOut, refund unspent
+  executors/CurveExchangeLib.sol    StableSwap vs crypto Curve exchange encoding
 ```
 
 Tests mirror the source layout under `test/swap/` and use the `@harbor-swap-test/` remap.
 Cross-cutting mocks (`MockSwapper`, `MockUniV3Router`, `MockAugustusV62`, `MockAggregationRouterV6`) stay in `test/mocks/`.
+Pinned mainnet fork tests live under `test/swap/fork/`.
 
 ## Two-mode design
 
@@ -191,9 +195,11 @@ Aggregator (`VeloraSwapper_v1`, primary):
 - Immutable router (Velora Augustus v6.2 on production; constructor arg overridable
   for tests / future routers). Caller supplies opaque calldata; recipient and amounts are
   encoded in that calldata. The adapter enforces **selector allowlist** (Option A: only
-  `VeloraV62Selectors.SWAP_EXACT_AMOUNT_IN` and `SWAP_EXACT_AMOUNT_OUT`), slippage by balance delta, and resets the router allowance to
-  zero. It does **not** decode swap parameters inside allowed calldata — the call site
-  (`HarborYield_v1.redistribute`, gated by `REDISTRIBUTOR_ROLE`) provides vetted keeper-built routes.
+  `VeloraV62Selectors.SWAP_EXACT_AMOUNT_IN` and `SWAP_EXACT_AMOUNT_OUT`). Slippage,
+  same-token rejection, exact-pull, `ZeroAmountOut`, and partial-fill refunds live in
+  `SwapExecutorBase` — the selector check is defence-in-depth. It does **not** decode swap
+  parameters inside allowed calldata — the call site (`HarborYield_v1.redistribute`, gated
+  by `REDISTRIBUTOR_ROLE`) provides vetted keeper-built routes.
 - Unspent `fromToken` after a partial fill is refunded to `msg.sender` (HY), so no input
   can accrue inside the adapter between calls.
 - The adapter is open-access (no role gate on `swap`) because it operates purely on
@@ -201,8 +207,9 @@ Aggregator (`VeloraSwapper_v1`, primary):
 
 Aggregator (`OneInchSwapper_v1`, optional alternative):
 
-- Same adapter pattern as Velora with a single allowlisted selector (`OneInchV6Selectors.SWAP`).
-  Requires 1inch dev-portal KYC for off-chain calldata. Use only when Velora routing is unavailable.
+- Same `SwapExecutorBase` pattern as Velora with a single allowlisted selector
+  (`OneInchV6Selectors.SWAP`). Requires 1inch dev-portal KYC for off-chain calldata. Use
+  only when Velora routing is unavailable.
 
 ## Consumer integration
 
@@ -255,8 +262,9 @@ This package lives in [baofinance/harbor-swap](https://github.com/baofinance/har
 Harbor Yield and other consumers import it via submodule or dependency and use the
 `@harbor-swap/` remapping defined in [`foundry.toml`](../../foundry.toml).
 
-**Test scope:** mock-based unit tests under `test/swap/` (107 tests). Mainnet fork
-integration (full ETH stack + oracle mocks) lives in the Harbor Yield consumer repo, not here.
+**Test scope:** mock-based unit tests under `test/swap/` plus pinned mainnet fork tests under
+`test/swap/fork/` (require `MAINNET_RPC_URL`). All executors share `SwapExecutorBase`
+(`ZeroAmountOut` is always fatal even at `minAmountOut == 0`).
 
 **Intentional design tradeoffs** (see threat model above):
 

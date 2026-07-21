@@ -12,11 +12,13 @@ import {Token} from "@bao/Token.sol";
 
 import {IAggregatorSwapper} from "@harbor-swap/aggregator/IAggregatorSwapper.sol";
 import {VeloraV62Selectors} from "@harbor-swap/aggregator/VeloraV62Selectors.sol";
+import {SwapExecutorBase} from "@harbor-swap/SwapExecutorBase.sol";
 
 /// @title VeloraSwapper_v1
 /// @notice Aggregator adapter that executes opaque keeper-built calldata against a fixed
-///         router (Velora Augustus v6.2 on production). Slippage is enforced by post-call
-///         balance delta; any unspent `fromToken` is refunded to the caller.
+///         router (Velora Augustus v6.2 on production). The SwapExecutorBase envelope
+///         enforces slippage by post-call balance delta and refunds any unspent `fromToken`
+///         to the caller.
 /// @dev Security properties:
 ///      - Router is an immutable constructor arg, never caller-supplied.
 ///      - Approval is forced to `amountIn` before the call and reset to zero after.
@@ -27,13 +29,15 @@ import {VeloraV62Selectors} from "@harbor-swap/aggregator/VeloraV62Selectors.sol
 ///        `HarborYield_v1.redistribute` role gate).
 ///      - `routerData` must be at least 4 bytes and start with a Velora v6.2 allowlisted
 ///        selector (`swapExactAmountIn` or `swapExactAmountOut`). Other router entrypoints
-///        are rejected.
+///        are rejected. The selector check is defence-in-depth; the envelope's balance-delta
+///        accounting (with `ZeroAmountOut` fatal even at `minAmountOut == 0`) is what makes
+///        hostile calldata unprofitable.
 ///      - This adapter is upgradeable (UUPS) so the router immutable can be repointed
 ///        across major aggregator upgrades by deploying a new implementation.
 /// @custom:oz-upgrades-unsafe-allow state-variable-immutable constructor
 // slither-disable-next-line missing-inheritance — false positive: initialize(address,address) ABI matches IHarborYieldEntryInit by coincidence; the two addresses are (deployerOwner, pendingOwner), not entry init args
 contract VeloraSwapper_v1 is// solhint-disable-line contract-name-capwords
- IAggregatorSwapper, HarborOwnableRoles, Initializable, UUPSUpgradeable, TokenHolder_v2 {
+ IAggregatorSwapper, HarborOwnableRoles, Initializable, UUPSUpgradeable, TokenHolder_v2, SwapExecutorBase {
     using SafeERC20 for IERC20;
 
     /// @notice The fixed router this adapter calls. Augustus v6.2 lives at the same
@@ -54,9 +58,8 @@ contract VeloraSwapper_v1 is// solhint-disable-line contract-name-capwords
     }
 
     /// @inheritdoc IAggregatorSwapper
-    // Low-level call to the immutable router is intentional (calldata is keeper-built and
-    // intentionally opaque). Reentrancy is blocked by nonReentrant, and the event is emitted
-    // after the external call has fully unwound and balances have been reconciled.
+    // The event is emitted after the envelope has fully reconciled balances and paid the
+    // caller; reentrancy is blocked by nonReentrant.
     function swap(
         address fromToken,
         address toToken,
@@ -64,19 +67,23 @@ contract VeloraSwapper_v1 is// solhint-disable-line contract-name-capwords
         uint256 minAmountOut,
         bytes calldata routerData
     ) external override nonReentrant returns (uint256 amountOut) {
-        if (fromToken == toToken) {
-            IERC20(fromToken).safeTransferFrom(msg.sender, address(this), amountIn);
-            IERC20(toToken).safeTransfer(msg.sender, amountIn);
-            emit AggregatorSwap(msg.sender, fromToken, toToken, amountIn, amountIn, 0);
-            return amountIn;
-        }
-
-        IERC20(fromToken).safeTransferFrom(msg.sender, address(this), amountIn);
-        uint256 fromBalanceBefore = IERC20(fromToken).balanceOf(address(this));
-        uint256 toBalanceBefore = IERC20(toToken).balanceOf(address(this));
-
         _validateRouterData(routerData);
+        uint256 refundedIn;
+        (amountOut, refundedIn) = _swapEnvelope(fromToken, toToken, amountIn, minAmountOut, routerData);
+        emit AggregatorSwap(msg.sender, fromToken, toToken, amountIn, amountOut, refundedIn);
+    }
 
+    /// @dev The router leg: approve exactly `amountIn`, hand the keeper-built calldata to the
+    ///      immutable router, reset the approval. The low-level call is intentional — the
+    ///      calldata is opaque by design. `minAmountOut` is not forwarded (Velora carries its
+    ///      own bound inside the calldata); the envelope enforces it authoritatively.
+    function _execute(
+        address fromToken,
+        address,
+        uint256 amountIn,
+        uint256,
+        bytes memory routerData
+    ) internal override {
         IERC20(fromToken).forceApprove(ROUTER, amountIn);
         // slither-disable-next-line low-level-calls
         (bool ok, bytes memory revertData) = ROUTER.call(routerData); // solhint-disable-line avoid-low-level-calls
@@ -84,21 +91,6 @@ contract VeloraSwapper_v1 is// solhint-disable-line contract-name-capwords
         if (!ok) {
             revert RouterCallFailed(revertData);
         }
-
-        amountOut = IERC20(toToken).balanceOf(address(this)) - toBalanceBefore;
-        if (amountOut < minAmountOut) {
-            revert InsufficientAmountOut(amountOut, minAmountOut);
-        }
-
-        uint256 fromBalanceAfter = IERC20(fromToken).balanceOf(address(this));
-        uint256 refundedIn =
-            fromBalanceAfter > (fromBalanceBefore - amountIn) ? fromBalanceAfter - (fromBalanceBefore - amountIn) : 0;
-        if (refundedIn > 0) {
-            IERC20(fromToken).safeTransfer(msg.sender, refundedIn);
-        }
-        IERC20(toToken).safeTransfer(msg.sender, amountOut);
-
-        emit AggregatorSwap(msg.sender, fromToken, toToken, amountIn, amountOut, refundedIn);
     }
 
     /// @dev Harbor Option A: only Velora v6.2 Market API swap entrypoints.

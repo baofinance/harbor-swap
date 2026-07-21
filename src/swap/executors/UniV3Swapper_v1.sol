@@ -3,18 +3,20 @@ pragma solidity 0.8.30;
 
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
-import {ReentrancyGuardTransient} from "@openzeppelin/contracts/utils/ReentrancyGuardTransient.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {ISwapRouter} from "@uniswap/v3-periphery/contracts/interfaces/ISwapRouter.sol";
 
 import {HarborOwnableRoles} from "@bao/HarborOwnableRoles.sol";
+import {TokenHolder_v2} from "@bao/TokenHolder_v2.sol";
 import {ISwapExecutor} from "@harbor-swap/interfaces/ISwapExecutor.sol";
+import {SwapExecutorBase} from "@harbor-swap/SwapExecutorBase.sol";
 
 /// @title UniV3Swapper_v1
 /// @notice ISwapExecutor implementation using Uniswap v3 exactInput for all swaps.
 ///         Stores encoded route paths per token pair; registered in Swapper_v1 as the
-///         swap executor for pairs that use UniV3 liquidity.
+///         swap executor for pairs that use UniV3 liquidity. The SwapExecutorBase envelope
+///         owns pull/refund/delivery and the authoritative output floor.
 /// @dev Security properties:
 ///      - Router approval target is an immutable constructor arg, never caller-supplied.
 ///      - Approval cleared to zero after every swap.
@@ -22,11 +24,10 @@ import {ISwapExecutor} from "@harbor-swap/interfaces/ISwapExecutor.sol";
 /// @custom:oz-upgrades-unsafe-allow state-variable-immutable constructor
 // slither-disable-next-line missing-inheritance — false positive: initialize(address,address) ABI matches IHarborYieldEntryInit by coincidence; the two addresses are (deployerOwner, pendingOwner), not entry init args
 contract UniV3Swapper_v1 is// solhint-disable-line contract-name-capwords
- ISwapExecutor, HarborOwnableRoles, Initializable, UUPSUpgradeable, ReentrancyGuardTransient {
+ ISwapExecutor, HarborOwnableRoles, Initializable, UUPSUpgradeable, TokenHolder_v2, SwapExecutorBase {
     using SafeERC20 for IERC20;
 
     error NoPathConfigured(address fromToken, address toToken);
-    error InsufficientOutput(uint256 amountOut, uint256 minAmountOut);
 
     event PathSet(address indexed fromToken, address indexed toToken, bytes path);
 
@@ -86,21 +87,35 @@ contract UniV3Swapper_v1 is// solhint-disable-line contract-name-capwords
     }
 
     /// @inheritdoc ISwapExecutor
-    // slither-disable-next-line timestamp — deadline = block.timestamp is intentional: slippage is already enforced by minAmountOut; a future deadline would let searchers delay execution to a block where price slips just inside the limit
     function swap(
         address fromToken,
         address toToken,
         uint256 amountIn,
         uint256 minAmountOut
     ) external override nonReentrant returns (uint256 amountOut) {
-        IERC20(fromToken).safeTransferFrom(msg.sender, address(this), amountIn);
+        (amountOut, ) = _swapEnvelope(fromToken, toToken, amountIn, minAmountOut, "");
+    }
 
+    /// @dev The router leg: resolve the governance-set path, approve exactly `amountIn`,
+    ///      exactInput to this contract, reset the approval. `minAmountOut` is forwarded as
+    ///      the router's own `amountOutMinimum` for an early revert; the envelope re-checks
+    ///      it authoritatively against the balance delta, so the router's return value is
+    ///      not used.
+    // slither-disable-next-line timestamp — deadline = block.timestamp is intentional: slippage is already enforced by minAmountOut; a future deadline would let searchers delay execution to a block where price slips just inside the limit
+    function _execute(
+        address fromToken,
+        address toToken,
+        uint256 amountIn,
+        uint256 minAmountOut,
+        bytes memory
+    ) internal override {
         bytes memory path = _getUniV3SwapperStorage().paths[fromToken][toToken];
         if (path.length == 0) {
             revert NoPathConfigured(fromToken, toToken);
         }
         IERC20(fromToken).forceApprove(address(ROUTER), amountIn);
-        amountOut = ROUTER.exactInput(
+        // slither-disable-next-line unused-return — the envelope measures the output as a balance delta
+        ROUTER.exactInput(
             ISwapRouter.ExactInputParams({
                 path: path,
                 recipient: address(this),
@@ -110,11 +125,6 @@ contract UniV3Swapper_v1 is// solhint-disable-line contract-name-capwords
             })
         );
         IERC20(fromToken).forceApprove(address(ROUTER), 0);
-
-        if (amountOut < minAmountOut) {
-            revert InsufficientOutput(amountOut, minAmountOut);
-        }
-        IERC20(toToken).safeTransfer(msg.sender, amountOut);
     }
 
     // solhint-disable-next-line no-empty-blocks

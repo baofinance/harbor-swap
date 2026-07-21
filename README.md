@@ -8,6 +8,7 @@ Harbor Yield and other Harbor products.
 
 - Architecture and threat model: [`src/swap/README.md`](src/swap/README.md)
 - Deploy runbook: [`script/DEPLOY_SWAP.md`](script/DEPLOY_SWAP.md)
+- Executor hardening divergence: [`doc/swap-executor-divergence.md`](doc/swap-executor-divergence.md)
 
 ## Build and test
 
@@ -17,8 +18,10 @@ forge build
 forge test --match-path "test/swap/**"
 ```
 
-**Test scope:** mock-based unit tests only (107 tests under `test/swap/`). Mainnet fork
-integration (full ETH stack + oracle mocks) lives in the Harbor Yield consumer repo.
+**Test scope:** mock-based unit tests under `test/swap/` plus pinned mainnet fork tests under
+`test/swap/fork/` (require `MAINNET_RPC_URL`). All executors and aggregator adapters share
+`SwapExecutorBase` — notably `amountOut == 0` always reverts (`ZeroAmountOut`), even when
+`minAmountOut == 0`.
 
 **Aggregator calldata:** Harbor Option A — per adapter:
 - **Velora (primary):** `swapExactAmountIn` (`0xe3ead59e`) or `swapExactAmountOut` (`0x7f457675`) via Market API

@@ -7,12 +7,13 @@ pragma solidity >=0.8.28 <0.9.0;
 ///         per-swap (built off-chain by a keeper). The adapter targets one immutable router
 ///         (e.g. Velora Augustus v6.2) and is intended for low-urgency, governance-gated
 ///         rebalances that cannot be expressed as a stored direct-executor route.
-/// @dev Output amount is verified by post-call balance delta against `minAmountOut`. Any
-///      unspent `fromToken` is refunded to `msg.sender` (the adapter caller — not the router
-///      and not the keeper's EOA). In HarborYield `redistribute`, `msg.sender` is HarborYield
-///      itself; VaultManager then re-winds that refund into `fromVault` as vault shares,
-///      so partial fills return to the source ERC4626 vault rather than stranding at HY or
-///      paying the role holder.
+/// @dev Concrete adapters share `SwapExecutorBase`: output is a `toToken` balance delta,
+///      `amountOut == 0` is always fatal (`ZeroAmountOut`) even when `minAmountOut == 0`,
+///      and unspent `fromToken` is refunded to `msg.sender` (the adapter caller — not the
+///      router and not the keeper's EOA). In HarborYield `redistribute`, `msg.sender` is
+///      HarborYield itself; VaultManager then re-winds that refund into `fromVault` as vault
+///      shares, so partial fills return to the source ERC4626 vault rather than stranding at
+///      HY or paying the role holder.
 interface IAggregatorSwapper {
     /// @notice Emitted on every successful swap.
     event AggregatorSwap(
@@ -32,9 +33,6 @@ interface IAggregatorSwapper {
 
     /// @notice `routerData` selector is not on the Harbor aggregator allowlist.
     error DisallowedRouterSelector(bytes4 selector);
-
-    /// @notice Post-call output is below the slippage floor.
-    error InsufficientAmountOut(uint256 amountOut, uint256 minAmountOut);
 
     /// @notice Aggregator swap entrypoint.
     ///         Pulls `amountIn` of `fromToken` from `msg.sender`, approves the immutable

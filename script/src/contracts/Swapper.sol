@@ -132,8 +132,8 @@ abstract contract Swapper is Deployer, ConfigVelora, ConfigOneInch, ConfigBalanc
 
     /// @notice Deploy CurveSwapper. Curve has no canonical router across chains; pool
     ///         addresses are governance-configured per-pair via
-    ///         `CurveSwapper_v1.setRoute(from, to, pool, i, j, useUnderlying)` after
-    ///         deployment.
+    ///         `CurveSwapper_v1.setRoute(from, to, pool, kind, i, j, useUnderlying)` after
+    ///         deployment (kind = the pool's Curve family, StableSwap vs Crypto).
     function deployCurveSwapper(DeploymentTypes.State memory stateData) internal returns (address proxy) {
         console.log("    > curveSwapper");
 
