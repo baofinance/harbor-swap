@@ -29,9 +29,6 @@ interface IAggregatorSwapper {
     /// @notice `routerData` selector is not on the Harbor 1inch v6 allowlist.
     error DisallowedRouterSelector(bytes4 selector);
 
-    /// @notice Post-call output is below the slippage floor.
-    error InsufficientAmountOut(uint256 amountOut, uint256 minAmountOut);
-
     /// @notice Aggregator swap entrypoint.
     ///         Pulls `amountIn` of `fromToken` from `msg.sender`, approves the immutable
     ///         router, calls `router.call(routerData)`, refunds any unspent `fromToken`

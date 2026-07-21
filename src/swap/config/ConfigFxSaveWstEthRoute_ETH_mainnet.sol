@@ -1,12 +1,15 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.28 <0.9.0;
 
+import {CurveExchangeLib} from "@harbor-swap/executors/CurveExchangeLib.sol";
+
 /// @title ConfigFxSaveWstEthRoute_ETH_mainnet
 /// @notice Mainnet route constants for the fxSAVE ↔ wstETH composite swap used by
 ///         `FxSaveWstEthSwapper_v1`. Mirrors the Curve UI path:
 ///           wstETH → crvUSD (TricryptoLLAMA) → scrvUSD vault deposit → fxSAVE pool
 ///         Harbor `distribute()` uses the reverse: fxSAVE → scrvUSD shares → redeem → wstETH.
-/// @dev Pool coin indices verified on-chain via `coins(uint256)` at deployment time.
+/// @dev Pool coin indices and pool families are re-verified against real mainnet state by
+///      the fork conformance tests on every fork run (pinned block).
 ///      Update this file and upgrade `FxSaveWstEthSwapper_v1` to change the route.
 // solhint-disable-next-line contract-name-capwords
 library ConfigFxSaveWstEthRoute_ETH_mainnet {
@@ -26,8 +29,17 @@ library ConfigFxSaveWstEthRoute_ETH_mainnet {
     /// @notice fxSAVE / scrvUSD StableSwap-NG pool.
     address internal constant POOL_FXSAVE_SCRVUSD = 0xb6E4821c6fCABe32f5F452dfD3Ef20Ce2A3a48E2;
 
+    /// @notice fxSAVE/scrvUSD is a StableSwap-NG pool: `exchange` takes int128 indices.
+    CurveExchangeLib.CurvePoolKind internal constant POOL_FXSAVE_SCRVUSD_KIND = CurveExchangeLib
+        .CurvePoolKind
+        .StableSwap;
+
     /// @notice TricryptoLLAMA pool (crvUSD / tBTC / wstETH).
     address internal constant POOL_TRICRYPTO_LLAMA = 0x2889302a794dA87fBF1D6Db415C1492194663D13;
+
+    /// @notice TricryptoLLAMA is a Curve CRYPTO pool: `exchange` takes uint256 indices, and
+    ///         the int128 selector is silently swallowed by its Vyper `__default__`.
+    CurveExchangeLib.CurvePoolKind internal constant POOL_TRICRYPTO_LLAMA_KIND = CurveExchangeLib.CurvePoolKind.Crypto;
 
     /// @notice fxSAVE/scrvUSD pool: coins(0) = fxSAVE, coins(1) = scrvUSD vault shares.
     int128 internal constant POOL2_I_FXSAVE = 0;
