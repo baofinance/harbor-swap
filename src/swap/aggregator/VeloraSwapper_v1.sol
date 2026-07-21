@@ -99,7 +99,9 @@ contract VeloraSwapper_v1 is// solhint-disable-line contract-name-capwords
             revert RouterCalldataTooShort();
         }
         bytes4 selector = bytes4(routerData[:4]);
-        if (selector != VeloraV62Selectors.SWAP_EXACT_AMOUNT_IN && selector != VeloraV62Selectors.SWAP_EXACT_AMOUNT_OUT) {
+        if (
+            selector != VeloraV62Selectors.SWAP_EXACT_AMOUNT_IN && selector != VeloraV62Selectors.SWAP_EXACT_AMOUNT_OUT
+        ) {
             revert DisallowedRouterSelector(selector);
         }
     }

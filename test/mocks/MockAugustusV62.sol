@@ -63,7 +63,11 @@ contract MockAugustusV62 {
         uint256,
         bytes calldata,
         bytes calldata
-    ) external payable returns (uint256 spentAmount, uint256 receivedAmount, uint256 paraswapShare, uint256 partnerShare) {
+    )
+        external
+        payable
+        returns (uint256 spentAmount, uint256 receivedAmount, uint256 paraswapShare, uint256 partnerShare)
+    {
         (spentAmount, receivedAmount) = _fill(swapData.srcToken, swapData.destToken, swapData.fromAmount);
         paraswapShare = 0;
         partnerShare = 0;
