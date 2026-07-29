@@ -4,13 +4,13 @@ src/swap/Swapper_v1.sol:Swapper_v1
 | function name     |   max |   display |
 |-------------------|-------|-----------|
 | ROUTE_SETTER_ROLE |   239 | 2.390e+02 |
-| getRoute          |  5532 | 5.532e+03 |
-| getRoutesFrom     | 10260 | 1.026e+04 |
+| getRoute          |  5896 | 5.896e+03 |
+| getRoutesFrom     | 10151 | 1.015e+04 |
 | grantRoles        | 26330 | 2.633e+04 |
 | initialize        | 70340 | 7.034e+04 |
 | setRoute          | 51746 | 5.175e+04 |
 | swapExecutors     |  2806 | 2.806e+03 |
-| swapFeeRatios     |  2767 | 2.767e+03 |
+| swapFeeRatios     |  2789 | 2.789e+03 |
 
 src/swap/aggregator/OneInchSwapper_v1.sol:OneInchSwapper_v1
 | function name    |    max |   display |
