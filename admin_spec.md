@@ -182,15 +182,20 @@ Wallet with `REDISTRIBUTOR_ROLE` signs `hy.redistribute(...)`.
 
 When building calldata, set:
 
-```
+```text
 userAddress = veloraSwapper proxy address
-txOrigin   = outer transaction sender (keeper / redistributor EOA or Safe)
+txOrigin   = see direct-EOA vs Safe rules below
 ```
 
 Not HarborYield. Flow is: `EOA/Safe → HY.redistribute → VeloraSwapper.swap() → Augustus`.
-The adapter is `msg.sender` to the router (`userAddress`); the signing wallet is `tx.origin`
-(`txOrigin`). Velora requires both when an intermediary contract sits between the outer
-sender and Augustus.
+The adapter is `msg.sender` to the router (`userAddress`). Velora also wants `txOrigin` when
+an intermediary sits between the outer caller and Augustus — **do not blindly copy
+`tx.origin`**, which can be a Safe relayer rather than the redistributor.
+
+| How `redistribute` is submitted | `userAddress` | `txOrigin` |
+|---------------------------------|---------------|------------|
+| **Direct EOA** (keeper EOA calls HY) | veloraSwapper proxy | that same EOA (`tx.origin`) |
+| **Safe** (Safe execTransaction / module) | veloraSwapper proxy | the **Safe address** (not the relayer EOA that is `tx.origin`) |
 
 ### Step 1 — Estimate swap input amount
 
@@ -231,13 +236,14 @@ Content-Type: application/json
   "destToken": "{toToken}",
   "srcAmount": "{amountWei}",
   "userAddress": "{veloraSwapperProxy}",
-  "txOrigin": "{outerTransactionSender}",
+  "txOrigin": "{directEoaOrSafeAddress}",
   "slippage": 100,
   "partner": "harbor"
 }
 ```
 
-Response `data` field → `routerData` for `redistribute`.
+`txOrigin` = redistributor EOA for direct calls, or the Safe address when a Safe submits
+(see table above). Response `data` field → `routerData` for `redistribute`.
 
 ### Allowed selectors (on-chain allowlist)
 
@@ -348,7 +354,7 @@ HY does **not** rely on adapter `minAmountOut` (passed as `0` internally). Guard
 □ fromToken / toToken valid for respective vault stacks
       □ If swap: aggregator matches calldata source (Velora calldata → veloraSwapper)
       □ Velora userAddress = veloraSwapper proxy
-      □ Velora txOrigin = outer transaction sender (keeper / redistributor)
+      □ Velora txOrigin = redistributor EOA (direct) or Safe address (Safe exec; not the relayer)
 □ eth_call simulate succeeds
 □ minToAssets set appropriately (0 for partial-fill tolerance, >0 for strict)
 □ Target minter healthy (if AC target, cross-market)

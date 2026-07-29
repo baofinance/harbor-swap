@@ -11,7 +11,8 @@ pragma solidity >=0.8.28 <0.9.0;
 ///      `includeContractMethods=swapExactAmountIn,swapExactAmountOut` on `GET /prices`
 ///      (API default `version` is legacy `5`, which this adapter rejects). Then
 ///      `POST /transactions/:chainId` with `userAddress` = adapter proxy and `txOrigin` =
-///      outer sender. See https://developers.velora.xyz/augustus-swapper/augustus-v6.2-smart-contracts
+///      redistributor EOA (direct) or Safe address (not a Safe relayer).
+///      See https://developers.velora.xyz/augustus-swapper/augustus-v6.2-smart-contracts
 library VeloraV62Selectors {
     /// @notice `swapExactAmountIn(address,(address,address,uint256,uint256,uint256,bytes32,address),uint256,bytes,bytes)`
     bytes4 internal constant SWAP_EXACT_AMOUNT_IN = 0xe3ead59e;

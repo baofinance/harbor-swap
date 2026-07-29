@@ -108,7 +108,8 @@ Properties:
   Keepers must pin Market API quotes with `version=6.2` and
   `includeContractMethods=swapExactAmountIn,swapExactAmountOut` on `GET /prices` (default
   `version` is legacy `5`), then `POST /transactions/:chainId` with `userAddress` = adapter
-  proxy and `txOrigin` = outer sender. Direct-pool entrypoints
+  proxy and `txOrigin` = redistributor EOA (direct) or Safe address (not a Safe relayer).
+  Direct-pool entrypoints
   (`swapExactAmountInOnUniswapV2`, RFQ fills, etc.) are rejected.
 - Two-stage approve / call / zero approval flow at both HY and adapter layers.
 - Slippage enforced twice: by the router's own minReturn inside the calldata and by the

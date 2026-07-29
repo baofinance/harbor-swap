@@ -26,8 +26,8 @@ forge test --match-path "test/swap/**"
 **Aggregator calldata:** Harbor Option A — per adapter:
 - **Velora (primary):** pin `GET /prices` with `version=6.2` and
   `includeContractMethods=swapExactAmountIn,swapExactAmountOut`; allowlisted selectors
-  `0xe3ead59e` / `0x7f457675`. Pass `userAddress` = adapter proxy and `txOrigin` = outer sender
-  on `POST /transactions`.
+  `0xe3ead59e` / `0x7f457675`. Pass `userAddress` = adapter proxy and `txOrigin` = redistributor
+  EOA (direct) or Safe address (Safe exec; not the relayer) on `POST /transactions`.
 - **1inch (optional):** `swap` (`0x07ed2379`) via Swap API / Pathfinder (requires dev-portal KYC)
 
 Keepers pass the adapter address per `redistribute` call. Deploy Velora with `_veloraAggregatorDeployOptions()` or the full stack with `_fullSwapDeployOptions()`.
