@@ -18,7 +18,7 @@ deployed with `new` in-script; UUPS proxies are always factory-deployed at deter
 | **harbor-swap** (this repo) | `Swapper_v1`, direct executors, `VeloraSwapper_v1`, `OneInchSwapper_v1`, deploy scripts |
 | [baofinance/harbor](https://github.com/baofinance/harbor) | Phase 1a — Minter, SP, SPM; `HarborDeployer`, BaoFactory (`@harbor-script/`) |
 | [baofinance/harbor-price-aggregators](https://github.com/baofinance/harbor-price-aggregators) | Phase 1b — oracles at CREATE3 addresses |
-| **Harbor Yield consumer repo** (separate) | `HarborYield_v1`, ACs, equiv vaults; imports `@harbor-swap/`; fork integration tests |
+| **Harbor Yield consumer repo** (separate) | `HarborYield_v1`, ACs, equiv vaults; imports `@harbor-swap/`; full-stack HY fork/integration tests |
 
 Harbor Yield wiring (`_configureSwapRoutes` and keeper `REDISTRIBUTOR_ROLE` grants)
 lives in the consumer repo. This runbook covers swap-stack deploy and route configuration;
@@ -122,9 +122,16 @@ BaoFactory proxy → v1 upgrade. Swap unit tests under `test/swap/` call the sam
 `deploySwapper` / `deployUniV3Swapper` paths as production via CREATE3. Override
 `deploySwapperImplementation()` to inject `MockSwapper` without bypassing the factory.
 
-**Test scope in this repo:** mock-based unit tests only (`forge test --match-path "test/swap/**"`).
-Mainnet fork integration (full ETH stack + mocked oracles) lives in the Harbor Yield consumer
-repo.
+**Test scope in this repo:** mock-based unit tests under `test/swap/` plus pinned mainnet
+fork tests under `test/swap/fork/` (require `MAINNET_RPC_URL`):
+
+```bash
+forge test --match-path "test/swap/**"                          # unit + fork (forks skip without RPC)
+forge test --match-path "test/swap/fork/**" --fork-url "$MAINNET_RPC_URL"
+```
+
+Full ETH-stack HY integration (registry + oracles + `HarborYield_v1`) lives in the Harbor
+Yield consumer repo.
 
 ---
 
@@ -148,7 +155,7 @@ All swap proxies share the deploy script salt prefix (e.g. `harbor_v1::eth::`) a
 
 | Salt key | Contract | Purpose |
 |----------|----------|---------|
-| `swapper` | `Swapper_v1` | Route registry: `(from, to) → {executor, feeRatio}` |
+| `swapper` | `Swapper_v1` | Route registry: `(from, to) → {executor, routeCostRatio}` |
 | `uniV3Swapper` | `UniV3Swapper_v1` | Uniswap v3 `exactInput` (single- or multi-hop) |
 | `curveSwapper` | `CurveSwapper_v1` | Curve StableSwap `exchange` / `exchange_underlying` |
 | `balancerSwapper` | `BalancerSwapper_v1` | Balancer V2 Vault single-swap |
@@ -238,9 +245,10 @@ ISwapperConfig(swapper).setRoute(fromToken, toToken, executorProxy, feeRatio);
 ```
 
 - `executorProxy` = CREATE3 address of the executor (e.g. `_predictAddress("uniV3Swapper")`).
-- `feeRatio` = effective swap fee as 1e18-scaled ratio (e.g. `3e15` = 0.3%). HarborYield
-  reads this in `distribute()` as the minting threshold — set it **≥** the real pool fee so
-  residual swaps only run when economically sensible.
+- `feeRatio` = effective swap fee as 1e18-scaled ratio (e.g. `3e15` = 0.3%). Surfaced on
+  `RouteInfo.routeCostRatio` (v1 never sets `quoted` / `amountOut`). HarborYield reads this
+  in `distribute()` as the minting threshold — set it **≥** the real pool fee so residual
+  swaps only run when economically sensible.
 - Pass `executor = address(0)` to remove a registry entry.
 
 ### Example — ETH peg fxSAVE ↔ wstETH (FxSaveWstEthSwapper)
@@ -296,7 +304,7 @@ UniV3Swapper_v1(uniV3Swapper).setPath(
 );
 ```
 
-Until Layer 1 is set, `getRoutesFrom` / `getRoute` return the executor but
+Until Layer 1 is set, `getRoutesFrom` / `getRoute` return the executor (`quoted = false`) but
 `UniV3Swapper.swap` reverts with `NoPathConfigured`.
 
 ### Consumer wiring pattern
@@ -473,21 +481,23 @@ an ops multisig).
 
 ## 8. Verification checklist
 
-**Unit tests (this repo):**
+**Unit + executor fork tests (this repo):**
 
 ```bash
 forge build
 forge test --match-path "test/swap/**" -vv
+# Pinned mainnet forks (require MAINNET_RPC_URL):
+forge test --match-path "test/swap/fork/**" --fork-url "$MAINNET_RPC_URL" -vv
 ```
 
-**Fork / integration tests:** run in the Harbor Yield consumer repo (full ETH stack + swap
-registry + mocked oracles). Not included in harbor-swap.
+**Full-stack HY integration:** run in the Harbor Yield consumer repo (HY + ACs + oracles +
+swap registry wiring). Not included in harbor-swap.
 
 On-chain reads after deploy (replace addresses):
 
 ```solidity
 // Registry (single pair or legacy storage reads)
-ISwapper.RouteInfo memory info = Swapper_v1(swapper).getRoute(from, to);
+ISwapper.RouteInfo memory info = Swapper_v1(swapper).getRoute(from, to, amountIn);
 Swapper_v1(swapper).swapExecutors(from, to);
 Swapper_v1(swapper).swapFeeRatios(from, to);
 
@@ -501,7 +511,7 @@ Swapper_v1(swapper).swapFeeRatios(from, to);
 UniV3Swapper_v1(uniV3).paths(from, to).length > 0;
 CurveSwapper_v1(curve).routes(from, to).pool != address(0);
 BalancerSwapper_v1(bal).poolIds(from, to) != bytes32(0);
-// FxSaveWstEthSwapper: verify on mainnet fork in consumer repo
+// FxSaveWstEthSwapper: also covered by test/swap/fork/FxSaveWstEthSwapperFork.t.sol
 
 // Aggregator (consumer repo)
 HarborYield_v1(hy).hasAnyRole(keeper, HarborYield_v1(hy).REDISTRIBUTOR_ROLE());

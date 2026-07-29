@@ -15,7 +15,7 @@ code.
 
 ```
 src/swap/
-  Swapper_v1.sol                    Pure route registry (from, to) -> {executor, feeRatio}
+  Swapper_v1.sol                    Pure route registry (from, to) -> {executor, routeCostRatio}
   interfaces/
     ISwapper.sol                    Read API: getRoutesFrom (batch) + getRoute (single pair)
     ISwapperConfig.sol              Admin API: setRoute + RouteUpdated event
@@ -52,7 +52,10 @@ Harbor swap supports two distinct execution paths, chosen per call site by the c
 
 `HarborYield_v1.distribute()` and other latency- or peg-critical flows do:
 
-1. One batched `ISwapper.getRoutesFrom(from, targets)` view call.
+1. One batched `ISwapper.getRoutesFrom(from, targets, amountIn)` view call.
+   Use `routeCostRatio` at execute (minting threshold / cost). Live prices stay off-chain;
+   `quoted` is always false in v1 (`amountIn` / `amountOut` reserved for a future optional
+   on-chain quote).
 2. For each target with `available == true`, call `ISwapExecutor(swapExecutor).swap(from, to,
    amountIn, minAmountOut)` **directly** — no per-tx calldata.
 
@@ -102,8 +105,11 @@ Properties:
 - **Calldata allowlist (Option A):** `routerData` must be at least 4 bytes and start with
   [`VeloraV62Selectors.SWAP_EXACT_AMOUNT_IN`](aggregator/VeloraV62Selectors.sol) (`0xe3ead59e`) or
   [`VeloraV62Selectors.SWAP_EXACT_AMOUNT_OUT`](aggregator/VeloraV62Selectors.sol) (`0x7f457675`).
-  Keepers must use Velora Market API output (`GET /prices` → `POST /transactions/:chainId`);
-  direct-pool entrypoints (`swapExactAmountInOnUniswapV2`, RFQ fills, etc.) are rejected.
+  Keepers must pin Market API quotes with `version=6.2` and
+  `includeContractMethods=swapExactAmountIn,swapExactAmountOut` on `GET /prices` (default
+  `version` is legacy `5`), then `POST /transactions/:chainId` with `userAddress` = adapter
+  proxy and `txOrigin` = outer sender. Direct-pool entrypoints
+  (`swapExactAmountInOnUniswapV2`, RFQ fills, etc.) are rejected.
 - Two-stage approve / call / zero approval flow at both HY and adapter layers.
 - Slippage enforced twice: by the router's own minReturn inside the calldata and by the
   adapter's post-call balance-delta check against `minAmountOut`.
@@ -137,15 +143,16 @@ Route changes emit events for indexers and deploy verification:
 | `VeloraSwapper_v1` / `OneInchSwapper_v1` | `AggregatorSwap(...)` | each `swap` |
 | `FxSaveWstEthSwapper_v1` | `FxSaveWstEthSwap(...)` | each `swap` |
 
-Off-chain tooling can also call `ISwapper.getRoute(from, to)` for a single pair without
-building a one-element `targets` array.
+Off-chain tooling can also call `ISwapper.getRoute(from, to, amountIn)` for a single pair
+without building a one-element `targets` array.
 
 ## Public interface contract
 
 External code should depend on the **interfaces only**:
 
-- [`ISwapper`](interfaces/ISwapper.sol) — read side. `getRoutesFrom` (batch) and `getRoute`
-  (single pair).
+- [`ISwapper`](interfaces/ISwapper.sol) — read side. `getRoutesFrom` / `getRoute` take
+  `amountIn` and return `RouteInfo` with optional `quoted` / `amountOut` (always unquoted
+  in `Swapper_v1`; use `routeCostRatio`).
 - [`ISwapperConfig`](interfaces/ISwapperConfig.sol) — admin side. Per-pair `setRoute` and
   `RouteUpdated` event.
 - [`ISwapExecutor`](interfaces/ISwapExecutor.sol) — execution side. Stable four-argument

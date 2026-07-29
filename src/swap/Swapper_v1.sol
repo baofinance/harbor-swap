@@ -9,10 +9,11 @@ import {ISwapper} from "@harbor-swap/interfaces/ISwapper.sol";
 import {ISwapperConfig} from "@harbor-swap/interfaces/ISwapperConfig.sol";
 
 /// @title Swapper_v1
-/// @notice Swap route dispatcher. Pure registry: maps (from, to) → {swapExecutor, feeRatio}.
+/// @notice Swap route dispatcher. Pure registry: maps (from, to) → {swapExecutor, routeCostRatio}.
 ///         HarborYield batch-queries getRoutesFrom() once per distribute(), then calls each
 ///         swapExecutor directly — no routing logic here. DEX-specific logic lives in
 ///         executor contracts (e.g. UniV3Swapper_v1) that implement ISwapExecutor.
+///         `amountIn` is accepted for ABI forward-compat; v1 never sets `quoted` / `amountOut`.
 /// @dev Security properties:
 ///      - Swapper holds no funds and executes no swaps.
 ///      - swapExecutor addresses are owner-gated via setRoute.
@@ -77,33 +78,43 @@ contract Swapper_v1 is// solhint-disable-line contract-name-capwords
     }
 
     /// @inheritdoc ISwapper
-    function getRoute(address fromToken, address toToken) external view override returns (RouteInfo memory routeInfo) {
-        SwapperStorage storage $ = _getSwapperStorage();
-        address exec = $.swapExecutors[fromToken][toToken];
-        routeInfo = RouteInfo({
-            target: toToken,
-            available: exec != address(0),
-            feeRatio: exec != address(0) ? $.swapFeeRatios[fromToken][toToken] : 0,
-            swapExecutor: exec
-        });
+    function getRoute(
+        address fromToken,
+        address toToken,
+        uint256 amountIn
+    ) external view override returns (RouteInfo memory routeInfo) {
+        routeInfo = _routeInfo(fromToken, toToken, amountIn);
     }
 
     /// @inheritdoc ISwapper
     function getRoutesFrom(
         address fromToken,
-        address[] calldata targets
+        address[] calldata targets,
+        uint256 amountIn
     ) external view override returns (RouteInfo[] memory routeInfos) {
-        SwapperStorage storage $ = _getSwapperStorage();
         routeInfos = new RouteInfo[](targets.length);
         for (uint256 i = 0; i < targets.length; i++) {
-            address exec = $.swapExecutors[fromToken][targets[i]];
-            routeInfos[i] = RouteInfo({
-                target: targets[i],
-                available: exec != address(0),
-                feeRatio: exec != address(0) ? $.swapFeeRatios[fromToken][targets[i]] : 0,
-                swapExecutor: exec
-            });
+            routeInfos[i] = _routeInfo(fromToken, targets[i], amountIn);
         }
+    }
+
+    /// @dev Pure-registry fill: always `quoted = false` / `amountOut = 0`. `amountIn` is unused
+    ///      until an executor can price on-chain; keep the arg so callers can migrate once.
+    function _routeInfo(
+        address fromToken,
+        address toToken,
+        uint256 /* amountIn */
+    ) private view returns (RouteInfo memory routeInfo) {
+        SwapperStorage storage $ = _getSwapperStorage();
+        address exec = $.swapExecutors[fromToken][toToken];
+        routeInfo = RouteInfo({
+            target: toToken,
+            available: exec != address(0),
+            amountOut: 0,
+            quoted: false,
+            routeCostRatio: exec != address(0) ? $.swapFeeRatios[fromToken][toToken] : 0,
+            swapExecutor: exec
+        });
     }
 
     // solhint-disable-next-line no-empty-blocks

@@ -178,16 +178,19 @@ Wallet with `REDISTRIBUTOR_ROLE` signs `hy.redistribute(...)`.
 **Base URL:** `https://api.velora.xyz`  
 **Docs:** https://developers.velora.xyz/api/velora-api/velora-market-api/master/api-v6.2
 
-### Critical: `userAddress`
+### Critical: `userAddress` and `txOrigin`
 
 When building calldata, set:
 
 ```
 userAddress = veloraSwapper proxy address
+txOrigin   = outer transaction sender (keeper / redistributor EOA or Safe)
 ```
 
-Not HarborYield. Flow is: `HY → VeloraSwapper.swap() → Augustus router`. The adapter is
-`msg.sender` to the router.
+Not HarborYield. Flow is: `EOA/Safe → HY.redistribute → VeloraSwapper.swap() → Augustus`.
+The adapter is `msg.sender` to the router (`userAddress`); the signing wallet is `tx.origin`
+(`txOrigin`). Velora requires both when an intermediary contract sits between the outer
+sender and Augustus.
 
 ### Step 1 — Estimate swap input amount
 
@@ -199,6 +202,9 @@ After unwind, HY holds `amount` of `fromToken`. For admin preview (approximate):
 
 ### Step 2 — Price
 
+Pin Augustus **v6.2** and the two adapters-allowlisted methods. Omitting `version` falls
+back to legacy v5 calldata that `VeloraSwapper_v1` rejects.
+
 ```http
 GET https://api.velora.xyz/prices
   ?srcToken={fromToken}
@@ -207,6 +213,8 @@ GET https://api.velora.xyz/prices
   &side=SELL
   &network=1
   &partner=harbor
+  &version=6.2
+  &includeContractMethods=swapExactAmountIn,swapExactAmountOut
 ```
 
 Save full `priceRoute` from response.
@@ -223,6 +231,7 @@ Content-Type: application/json
   "destToken": "{toToken}",
   "srcAmount": "{amountWei}",
   "userAddress": "{veloraSwapperProxy}",
+  "txOrigin": "{outerTransactionSender}",
   "slippage": 100,
   "partner": "harbor"
 }
@@ -237,7 +246,9 @@ Response `data` field → `routerData` for `redistribute`.
 | `0xe3ead59e` | `swapExactAmountIn` |
 | `0x7f457675` | `swapExactAmountOut` |
 
-Market API returns these by default. Other Velora entrypoints will revert at adapter.
+Keepers must pin `/prices` with `version=6.2` and
+`includeContractMethods=swapExactAmountIn,swapExactAmountOut`. Other Velora entrypoints
+revert at the adapter (`DisallowedRouterSelector`).
 
 ---
 
@@ -335,8 +346,9 @@ HY does **not** rely on adapter `minAmountOut` (passed as `0` internally). Guard
 □ toVault.acceptsInflow == true
 □ HY holds >= shares of fromVault
 □ fromToken / toToken valid for respective vault stacks
-□ If swap: aggregator matches calldata source (Velora calldata → veloraSwapper)
-□ Velora userAddress = veloraSwapper proxy
+      □ If swap: aggregator matches calldata source (Velora calldata → veloraSwapper)
+      □ Velora userAddress = veloraSwapper proxy
+      □ Velora txOrigin = outer transaction sender (keeper / redistributor)
 □ eth_call simulate succeeds
 □ minToAssets set appropriately (0 for partial-fill tolerance, >0 for strict)
 □ Target minter healthy (if AC target, cross-market)
