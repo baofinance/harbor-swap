@@ -108,7 +108,10 @@ contract BalancerSwapperForkTest is ForkTestBase, Swapper {
         // Delta, not absolute: on a mainnet fork the test contract's deterministic address
         // can already hold real WETH.
         uint256 wethBefore = IERC20(WETH).balanceOf(address(this));
-        uint256 amountOut = ISwapExecutor(balancerSwapperProxy).swap(WSTETH, WETH, amountIn, (expected * 99) / 100);
+        // The floor is a RATE — output per 1e18 of input — so the quote is converted before the
+        // 1% tolerance is applied to it.
+        uint256 minRate = (((expected * 1 ether) / amountIn) * 99) / 100;
+        uint256 amountOut = ISwapExecutor(balancerSwapperProxy).swap(WSTETH, WETH, amountIn, minRate);
 
         assertApproxEqRel(amountOut, expected, 0.001e18, "WETH out must match the Vault's own quote");
         assertEq(IERC20(WETH).balanceOf(address(this)) - wethBefore, amountOut, "WETH delivered to caller");

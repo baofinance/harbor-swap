@@ -17,7 +17,6 @@
     "test:duration": "./lib/bao-base/run test-duration",
     "gas": "./lib/bao-base/run duration-of regression-of gas",
     "coverage": "./lib/bao-base/run regression-of coverage",
-    "wake": "uv run wake detect all src",
     "slither": "./lib/bao-base/run slither",
     "verify-audit": "./lib/bao-base/run verify-audit",
     "validate": "./lib/bao-base/run validate",
