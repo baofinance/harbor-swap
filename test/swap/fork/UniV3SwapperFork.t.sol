@@ -83,9 +83,11 @@ contract UniV3SwapperForkTest is ForkTestBase, Swapper {
         uint256 expected = IUniV3Quoter(QUOTER).quoteExactInput(abi.encodePacked(USDC, FEE, WETH), amountIn);
 
         IERC20(USDC).approve(uniV3SwapperProxy, amountIn);
-        uint256 minTooHigh = (expected * 101) / 100;
+        // The floor is a RATE — output per 1e18 of input — so the quote is converted before being
+        // pushed 1% above what the pool will actually pay.
+        uint256 rateTooHigh = (((expected * 1 ether) / amountIn) * 101) / 100;
 
         vm.expectRevert(bytes("Too little received"));
-        ISwapExecutor(uniV3SwapperProxy).swap(USDC, WETH, amountIn, minTooHigh);
+        ISwapExecutor(uniV3SwapperProxy).swap(USDC, WETH, amountIn, rateTooHigh);
     }
 }

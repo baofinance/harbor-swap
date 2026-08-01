@@ -2,7 +2,7 @@
   "lib/bao-base": {
     "branch": {
       "name": "main",
-      "rev": "d6601edbf7942af958cb6d6f9269bb3462a27108"
+      "rev": "168994e93f894d8e504d4865cf0d977788f49a5c"
     }
   },
   "lib/forge-std": {

@@ -125,9 +125,11 @@ contract BalancerSwapperForkTest is ForkTestBase, Swapper {
         uint256 expected = _queryExpected(amountIn);
 
         IERC20(WSTETH).approve(balancerSwapperProxy, amountIn);
-        uint256 minTooHigh = (expected * 101) / 100;
+        // The floor is a RATE — output per 1e18 of input — so the quote is converted before being
+        // pushed 1% above what the pool will actually pay.
+        uint256 rateTooHigh = (((expected * 1 ether) / amountIn) * 101) / 100;
 
         vm.expectRevert(bytes("BAL#507"));
-        ISwapExecutor(balancerSwapperProxy).swap(WSTETH, WETH, amountIn, minTooHigh);
+        ISwapExecutor(balancerSwapperProxy).swap(WSTETH, WETH, amountIn, rateTooHigh);
     }
 }

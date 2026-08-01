@@ -1,0 +1,15 @@
+# regression: suite_multiple=8 run_shift_multiple=4 noise_seconds=1.5 floor_seconds=0.05
+
+suite CPU (milliseconds)
+| name                                                                     |   milliseconds | CPU   |
+|--------------------------------------------------------------------------|----------------|-------|
+| test/swap/Swapper.t.sol:SwapperTest                                      |              1 | 0.00s |
+| test/swap/aggregator/OneInchSwapper.t.sol:OneInchSwapperTest             |             15 | 0.01s |
+| test/swap/executors/BalancerSwapper.t.sol:BalancerSwapperTest            |              7 | 0.01s |
+| test/swap/executors/CurveSwapper.t.sol:CurveSwapperTest                  |             16 | 0.02s |
+| test/swap/executors/FxSaveWstEthSwapper.t.sol:FxSaveWstEthSwapperTest    |             18 | 0.02s |
+| test/swap/executors/UniV3Swapper.t.sol:UniV3SwapperTest                  |             12 | 0.01s |
+| test/swap/fork/BalancerSwapperFork.t.sol:BalancerSwapperForkTest         |              6 | 0.01s |
+| test/swap/fork/CurveSwapperFork.t.sol:CurveSwapperForkTest               |             59 | 0.06s |
+| test/swap/fork/FxSaveWstEthSwapperFork.t.sol:FxSaveWstEthSwapperForkTest |             11 | 0.01s |
+| test/swap/fork/UniV3SwapperFork.t.sol:UniV3SwapperForkTest               |              3 | 0.00s |
