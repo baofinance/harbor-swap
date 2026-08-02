@@ -10,6 +10,7 @@ import "forge-std/Test.sol";
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
+import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {MockERC20} from "@bao-test/mocks/MockERC20.sol";
 import {SwapExecutorBase} from "@harbor-swap/SwapExecutorBase.sol";
 
@@ -63,6 +64,19 @@ abstract contract SwapExecutorTestBase is Test {
     ///      preview functions, never hardcoded, so fixtures can (and do) use non-unity rates.
     function _expectedOut(uint256 amountIn) internal view virtual returns (uint256);
 
+    /// @dev The venue's current rate in the units `swap` takes its floor in: `toToken` out per 1e18 of
+    ///      `fromToken` in. Quoting the floor as a rate is what lets it survive a partial fill, so a
+    ///      test that wants "exactly what the venue offers" asks for this rather than for an amount.
+    function _expectedRatePerUnitIn() internal view returns (uint256) {
+        return _expectedOut(1 ether);
+    }
+
+    /// @dev The absolute output the envelope will demand of `amountIn` at `ratePerUnitIn`, rounded up
+    ///      exactly as the envelope rounds it — the value that appears in `InsufficientAmountOut`.
+    function _requiredOut(uint256 amountIn, uint256 ratePerUnitIn) internal pure returns (uint256) {
+        return Math.mulDiv(amountIn, ratePerUnitIn, 1 ether, Math.Rounding.Ceil);
+    }
+
     /// @dev Turn the venue into a "liar": it under-delivers relative to its current rate and
     ///      ignores any natively-enforced minimum, reporting success. Used to prove the
     ///      executor's own balance-delta floor is the guard that actually protects callers.
@@ -106,9 +120,9 @@ abstract contract SwapExecutorTestBase is Test {
         _prepareSwapPair(_swapFromToken(), _swapToToken());
         uint256 expected = _expectedOut(amountIn);
 
-        uint256 amountOut = _swapCall(_swapFromToken(), _swapToToken(), amountIn, expected);
+        uint256 amountOut = _swapCall(_swapFromToken(), _swapToToken(), amountIn, _expectedRatePerUnitIn());
 
-        assertEq(amountOut, expected, "venue delivers exactly minAmountOut");
+        assertEq(amountOut, expected, "venue delivers exactly the demanded rate");
         assertEq(IERC20(_swapToToken()).balanceOf(address(this)), amountOut, "delivered to caller");
     }
 
@@ -119,14 +133,15 @@ abstract contract SwapExecutorTestBase is Test {
         uint256 amountIn = _oneFromToken();
         _fundAndApprove(_swapFromToken(), amountIn);
         _prepareSwapPair(_swapFromToken(), _swapToToken());
-        uint256 minAmountOut = _expectedOut(amountIn);
+        uint256 minRate = _expectedRatePerUnitIn();
+        uint256 required = _requiredOut(amountIn, minRate);
 
         _setVenueLiar();
         uint256 lied = _expectedOut(amountIn);
-        assertLt(lied, minAmountOut, "sanity: the liar under-delivers");
+        assertLt(lied, required, "sanity: the liar under-delivers");
 
-        vm.expectRevert(abi.encodeWithSelector(SwapExecutorBase.InsufficientAmountOut.selector, lied, minAmountOut));
-        _swapCall(_swapFromToken(), _swapToToken(), amountIn, minAmountOut);
+        vm.expectRevert(abi.encodeWithSelector(SwapExecutorBase.InsufficientAmountOut.selector, lied, required));
+        _swapCall(_swapFromToken(), _swapToToken(), amountIn, minRate);
     }
 
     /// @notice A donated toToken balance sitting in the executor is not paid out to the

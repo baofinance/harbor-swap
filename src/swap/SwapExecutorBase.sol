@@ -3,6 +3,7 @@ pragma solidity >=0.8.28 <0.9.0;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
 /// @title SwapExecutorBase
 /// @notice The swap envelope shared by every executor/adapter in this repo: pull the input,
@@ -17,15 +18,18 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
 ///        failing later as an opaque arithmetic panic).
 ///      - The output is the `toToken` balance DELTA — pre-existing (donated) balances are
 ///        never paid out to the caller.
-///      - `amountOut == 0` is ALWAYS fatal, independent of `minAmountOut`. A venue with a
+///      - `amountOut == 0` is ALWAYS fatal, independent of the floor. A venue with a
 ///        permissive fallback (e.g. a Vyper `__default__`) can accept a mis-encoded call,
-///        do nothing, and return success — with `minAmountOut == 0` (which consumers
-///        legitimately pass) the swap would otherwise consume the input and return nothing,
-///        silently. A swap that produced nothing is a failed swap.
-///      - The balance-delta check against `minAmountOut` is the AUTHORITATIVE slippage
-///        guard. Venues that accept a bound natively (Curve `min_dy`) get it as an
-///        early-revert optimisation; venues that cannot (1inch opaque calldata) rely on
-///        this check alone.
+///        do nothing, and return success — with a floor of 0 (which consumers legitimately
+///        pass) the swap would otherwise consume the input and return nothing, silently.
+///        A swap that produced nothing is a failed swap.
+///      - The balance-delta check against `minAmountOutPerUnitIn` is the AUTHORITATIVE
+///        slippage guard, and it binds a RATE against the input actually SPENT. That is what
+///        makes it survive the refund below: an absolute floor sized for `amountIn` would
+///        reject an honest partial fill, and one scaled down by the fill would shrink in step
+///        with the output and admit a sliver at any price. Venues that accept a bound natively
+///        (Curve `min_dy`) get the rate applied to the whole input as an early-revert
+///        optimisation; venues that cannot (1inch opaque calldata) rely on this check alone.
 ///      - Unspent input (partial fills) is refunded to the caller, measured against the
 ///        pre-pull balance so pre-existing holdings are preserved, and underflow-free by
 ///        construction (the venue's approval is capped at `amountIn`).
@@ -61,7 +65,7 @@ abstract contract SwapExecutorBase {
         address fromToken,
         address toToken,
         uint256 amountIn,
-        uint256 minAmountOut,
+        uint256 minAmountOutPerUnitIn,
         bytes memory executeData
     ) internal returns (uint256 amountOut, uint256 refundedIn) {
         if (fromToken == toToken) {
@@ -77,7 +81,13 @@ abstract contract SwapExecutorBase {
 
         uint256 toBefore = IERC20(toToken).balanceOf(address(this));
 
-        _execute(fromToken, toToken, amountIn, minAmountOut, executeData);
+        // Venues that take a bound natively want an ABSOLUTE amount, so the rate is converted here —
+        // once, rather than in each executor. It assumes the whole input is spent, which is exactly
+        // right for the exact-input venues that accept such a bound; a venue that fills partially
+        // (the aggregator, whose opaque calldata carries no bound anyway) is caught by the rate check
+        // below instead. Rounded UP so the native bound is never looser than the authoritative one.
+        uint256 venueMinAmountOut = Math.mulDiv(amountIn, minAmountOutPerUnitIn, 1 ether, Math.Rounding.Ceil);
+        _execute(fromToken, toToken, amountIn, venueMinAmountOut, executeData);
 
         amountOut = IERC20(toToken).balanceOf(address(this)) - toBefore;
         // Exact zero IS the guarded condition: a venue no-op produces exactly 0, and any
@@ -86,11 +96,18 @@ abstract contract SwapExecutorBase {
         if (amountOut == 0) {
             revert ZeroAmountOut();
         }
-        if (amountOut < minAmountOut) {
-            revert InsufficientAmountOut(amountOut, minAmountOut);
-        }
 
         refundedIn = IERC20(fromToken).balanceOf(address(this)) - fromBefore;
+        // The floor binds the RATE, against what was actually SPENT — which is why it is measured after
+        // the refund. Judging the output against a total sized for `amountIn` would reject a partial
+        // fill that charged nothing at all; scaling that total down by the fill instead would let a
+        // sliver filled at any price through, since the floor shrinks exactly as fast as the output.
+        // Only a rate separates a small honest fill from a bad one. Rounded UP so a wei of flooring
+        // cannot buy slack.
+        uint256 requiredOut = Math.mulDiv(amountIn - refundedIn, minAmountOutPerUnitIn, 1 ether, Math.Rounding.Ceil);
+        if (amountOut < requiredOut) {
+            revert InsufficientAmountOut(amountOut, requiredOut);
+        }
         if (refundedIn > 0) {
             IERC20(fromToken).safeTransfer(msg.sender, refundedIn);
         }
@@ -99,8 +116,10 @@ abstract contract SwapExecutorBase {
 
     /// @dev The venue-specific leg(s): spend up to `amountIn` of `fromToken` (already held by
     ///      this contract) to produce `toToken` back to this contract. Approvals to the venue
-    ///      are granted and reset here. `minAmountOut` may be forwarded to venues that enforce
-    ///      a bound natively; the envelope re-checks it authoritatively either way.
+    ///      are granted and reset here. `minAmountOut` is an ABSOLUTE amount — the caller's rate
+    ///      applied to the whole input — and may be forwarded to venues that enforce a bound
+    ///      natively, purely as an early revert; the envelope re-checks the RATE authoritatively
+    ///      against what was actually spent either way.
     function _execute(
         address fromToken,
         address toToken,
