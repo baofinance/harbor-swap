@@ -115,7 +115,9 @@ contract FxSaveWstEthSwapperForkTest is ForkTestBase, Swapper {
         assertGt(expected, 0, "sanity: composed quote is non-zero");
 
         IERC20(Cfg.FXSAVE).approve(swapperProxy, amountIn);
-        uint256 amountOut = ISwapExecutor(swapperProxy).swap(Cfg.FXSAVE, Cfg.WSTETH, amountIn, (expected * 99) / 100);
+        // The floor is a RATE — output per 1e18 of input — set 1% under the quote.
+        uint256 minRate = (((expected * 1 ether) / amountIn) * 99) / 100;
+        uint256 amountOut = ISwapExecutor(swapperProxy).swap(Cfg.FXSAVE, Cfg.WSTETH, amountIn, minRate);
 
         assertApproxEqRel(amountOut, expected, 0.001e18, "wstETH out must match the composed quote");
         assertEq(IERC20(Cfg.WSTETH).balanceOf(address(this)), amountOut, "wstETH delivered to caller");
@@ -150,7 +152,9 @@ contract FxSaveWstEthSwapperForkTest is ForkTestBase, Swapper {
         assertGt(expected, 0, "sanity: composed quote is non-zero");
 
         IERC20(Cfg.WSTETH).approve(swapperProxy, amountIn);
-        uint256 amountOut = ISwapExecutor(swapperProxy).swap(Cfg.WSTETH, Cfg.FXSAVE, amountIn, (expected * 99) / 100);
+        // The floor is a RATE — output per 1e18 of input — set 1% under the quote.
+        uint256 minRate = (((expected * 1 ether) / amountIn) * 99) / 100;
+        uint256 amountOut = ISwapExecutor(swapperProxy).swap(Cfg.WSTETH, Cfg.FXSAVE, amountIn, minRate);
 
         assertApproxEqRel(amountOut, expected, 0.001e18, "fxSAVE out must match the composed quote");
         assertEq(IERC20(Cfg.FXSAVE).balanceOf(address(this)), amountOut, "fxSAVE delivered to caller");
@@ -170,12 +174,15 @@ contract FxSaveWstEthSwapperForkTest is ForkTestBase, Swapper {
         uint256 expected = _quoteForward(amountIn);
 
         IERC20(Cfg.FXSAVE).approve(swapperProxy, amountIn);
+        // The floor is a RATE — output per 1e18 of input — so the quote is converted before being
+        // pushed 1% above what the pools will actually pay.
+        uint256 rateTooHigh = (((expected * 1 ether) / amountIn) * 101) / 100;
         vm.expectRevert(
             abi.encodeWithSelector(
                 CurveExchangeLib.PoolCallFailed.selector,
                 abi.encodeWithSignature("Error(string)", "Slippage")
             )
         );
-        ISwapExecutor(swapperProxy).swap(Cfg.FXSAVE, Cfg.WSTETH, amountIn, (expected * 101) / 100);
+        ISwapExecutor(swapperProxy).swap(Cfg.FXSAVE, Cfg.WSTETH, amountIn, rateTooHigh);
     }
 }

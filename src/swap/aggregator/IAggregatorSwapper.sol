@@ -43,14 +43,19 @@ interface IAggregatorSwapper {
     /// @param fromToken The token to swap from.
     /// @param toToken The token to swap to.
     /// @param amountIn The amount of `fromToken` to pull from `msg.sender`.
-    /// @param minAmountOut Minimum acceptable proceeds in `toToken`; reverts if not met.
+    /// @param minAmountOutPerUnitIn Minimum acceptable RATE: `toToken` units per 1e18 units of
+    ///        `fromToken` SPENT; reverts if not met. A rate rather than a total because this adapter
+    ///        refunds unspent input — partial fills are its normal case, and an absolute floor would
+    ///        either reject an honest one or, if scaled down by the fill, admit a sliver at any price.
+    ///        Token decimals are the caller's to fold in. 0 disables the floor, which is what a caller
+    ///        enforcing its own end-to-end value bound passes.
     /// @param routerData Opaque router calldata produced off-chain (keeper-built).
     /// @return amountOut Actual amount of `toToken` delivered to `msg.sender`.
     function swap(
         address fromToken,
         address toToken,
         uint256 amountIn,
-        uint256 minAmountOut,
+        uint256 minAmountOutPerUnitIn,
         bytes calldata routerData
     ) external returns (uint256 amountOut);
 

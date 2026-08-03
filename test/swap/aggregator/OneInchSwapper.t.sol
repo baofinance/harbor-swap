@@ -334,6 +334,48 @@ contract OneInchSwapperTest is BaoTest, TokenHolderTestBase, SwapExecutorTestBas
         assertEq(IERC20(toToken).balanceOf(oneInchProxy), 0);
     }
 
+    /// @notice A partial fill at an HONEST rate is accepted. The floor binds the rate, so a venue that
+    ///         spends 60% of the order and pays 60% of the proceeds has not slipped at all — an
+    ///         absolute floor sized for the whole order would have rejected it, because the output
+    ///         shrinks with the fill while such a floor does not.
+    function test_swap_partialFill_atHonestRate_meetsTheFloor() public {
+        MockAggregationRouterV6(router).setPartialFillRatio(0.6e18);
+        uint256 amountIn = AMOUNT_IN;
+        uint256 spent = (amountIn * 0.6e18) / 1e18;
+        _mintAndApprove(fromToken, oneInchProxy, amountIn);
+
+        uint256 amountOut = IAggregatorSwapper(oneInchProxy).swap(
+            fromToken,
+            toToken,
+            amountIn,
+            _expectedRatePerUnitIn(),
+            _routerData(amountIn)
+        );
+
+        assertEq(amountOut, _expectedOut(spent), "paid the venue's rate on what it actually spent");
+        assertEq(IERC20(fromToken).balanceOf(address(this)), amountIn - spent, "unspent portion refunded");
+    }
+
+    /// @notice A partial fill at a WORSE rate than demanded still reverts. This is the case a floor
+    ///         scaled down by the fill would wave through — it shrinks exactly as fast as the output it
+    ///         is meant to bound, so a sliver filled at any price would satisfy it.
+    function test_swap_partialFill_atPoorRate_reverts() public {
+        MockAggregationRouterV6(router).setPartialFillRatio(0.6e18);
+        uint256 amountIn = AMOUNT_IN;
+        uint256 spent = (amountIn * 0.6e18) / 1e18;
+        _mintAndApprove(fromToken, oneInchProxy, amountIn);
+        // Hoisted: each of these makes an external call, and an argument sub-expression would steal
+        // the expectRevert binding.
+        uint256 demandedRate = _expectedRatePerUnitIn() + 1; // a wei per unit better than the venue pays
+        uint256 required = _requiredOut(spent, demandedRate);
+        uint256 delivered = _expectedOut(spent);
+        bytes memory routerData = _routerData(amountIn);
+        assertLt(delivered, required, "sanity: the venue's rate is below the one demanded");
+
+        vm.expectRevert(abi.encodeWithSelector(SwapExecutorBase.InsufficientAmountOut.selector, delivered, required));
+        IAggregatorSwapper(oneInchProxy).swap(fromToken, toToken, amountIn, demandedRate, routerData);
+    }
+
     /// @notice The constructor rejects a router address with no code.
     function test_constructor_nonContractRouter_reverts() public {
         address eoa = makeAddr("eoaRouter");

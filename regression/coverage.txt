@@ -3,7 +3,7 @@
 | script/src/Deploy_Swap.sol                    | X   0% (0/26)    | X   0% (0/25)    | ✓ 100% (0/0)   | X   0% (0/3)     |
 | script/src/HarborSwapDeployStack.sol          | X   0% (0/17)    | X   0% (0/9)     | X   0% (0/4)   | X   0% (0/4)     |
 | script/src/contracts/Swapper.sol              | X  86% (71/83)   | X  88% (71/81)   | ✓ 100% (0/0)   | X  75% (18/24)   |
-| src/swap/SwapExecutorBase.sol                 | ✓ 100% (19/19)   | ✓ 100% (22/22)   | ✓ 100% (5/5)   | ✓ 100% (1/1)     |
+| src/swap/SwapExecutorBase.sol                 | ✓ 100% (21/21)   | ✓ 100% (26/26)   | ✓ 100% (5/5)   | ✓ 100% (1/1)     |
 | src/swap/Swapper_v1.sol                       | X  96% (25/26)   | ✓ 100% (20/20)   | ✓ 100% (0/0)   | X  90% (9/10)    |
 | src/swap/aggregator/OneInchSwapper_v1.sol     | ✓ 100% (24/24)   | ✓ 100% (19/19)   | ✓ 100% (3/3)   | ✓ 100% (6/6)     |
 | src/swap/aggregator/VeloraSwapper_v1.sol      | ✓ 100% (25/25)   | ✓ 100% (21/21)   | ✓ 100% (3/3)   | ✓ 100% (6/6)     |

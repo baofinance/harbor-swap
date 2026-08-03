@@ -65,9 +65,9 @@ contract FxSaveWstEthSwapper_v1 is// solhint-disable-line contract-name-capwords
         address fromToken,
         address toToken,
         uint256 amountIn,
-        uint256 minAmountOut
+        uint256 minAmountOutPerUnitIn
     ) external override nonReentrant returns (uint256 amountOut) {
-        (amountOut, ) = _swapEnvelope(fromToken, toToken, amountIn, minAmountOut, "");
+        (amountOut, ) = _swapEnvelope(fromToken, toToken, amountIn, minAmountOutPerUnitIn, "");
     }
 
     /// @dev Dispatch to the composite legs. The envelope has already pulled `amountIn` of

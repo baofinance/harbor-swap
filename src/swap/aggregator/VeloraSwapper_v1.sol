@@ -64,19 +64,20 @@ contract VeloraSwapper_v1 is// solhint-disable-line contract-name-capwords
         address fromToken,
         address toToken,
         uint256 amountIn,
-        uint256 minAmountOut,
+        uint256 minAmountOutPerUnitIn,
         bytes calldata routerData
     ) external override nonReentrant returns (uint256 amountOut) {
         _validateRouterData(routerData);
         uint256 refundedIn;
-        (amountOut, refundedIn) = _swapEnvelope(fromToken, toToken, amountIn, minAmountOut, routerData);
+        (amountOut, refundedIn) = _swapEnvelope(fromToken, toToken, amountIn, minAmountOutPerUnitIn, routerData);
         emit AggregatorSwap(msg.sender, fromToken, toToken, amountIn, amountOut, refundedIn);
     }
 
     /// @dev The router leg: approve exactly `amountIn`, hand the keeper-built calldata to the
     ///      immutable router, reset the approval. The low-level call is intentional — the
-    ///      calldata is opaque by design. `minAmountOut` is not forwarded (Velora carries its
-    ///      own bound inside the calldata); the envelope enforces it authoritatively.
+    ///      calldata is opaque by design. `minAmountOutPerUnitIn` is not forwarded (Velora
+    ///      carries its own bound inside the calldata); the envelope enforces the rate
+    ///      authoritatively against spent input.
     function _execute(
         address fromToken,
         address,

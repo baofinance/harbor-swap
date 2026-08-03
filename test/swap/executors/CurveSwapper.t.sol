@@ -312,7 +312,7 @@ contract CurveSwapperTest is BaoTest, TokenHolderTestBase, SwapExecutorTestBase,
         _mintAndApprove(fromToken, curveSwapperProxy, amountIn);
         // Hoisted: an argument sub-expression making an external call would steal the
         // expectRevert binding.
-        uint256 minTooHigh = _expectedOut(amountIn) + 1;
+        uint256 rateTooHigh = _expectedRatePerUnitIn() + 1;
 
         vm.expectRevert(
             abi.encodeWithSelector(
@@ -320,7 +320,7 @@ contract CurveSwapperTest is BaoTest, TokenHolderTestBase, SwapExecutorTestBase,
                 abi.encodeWithSignature("Error(string)", "Slippage")
             )
         );
-        ISwapExecutor(curveSwapperProxy).swap(fromToken, toToken, amountIn, minTooHigh);
+        ISwapExecutor(curveSwapperProxy).swap(fromToken, toToken, amountIn, rateTooHigh);
     }
 
     /// @notice Pool revert is surfaced via PoolCallFailed.
