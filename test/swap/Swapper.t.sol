@@ -81,12 +81,14 @@ contract SwapperTest is BaoTest, Swapper {
     function test_setRoute_zeroAddress_clearsRoute() public {
         _configureRoute();
         Swapper_v1(swapperProxy).setRoute(fromToken, toToken, address(0), 0);
+        assertEq(Swapper_v1(swapperProxy).routeCostRatios(fromToken, toToken), 0);
 
         address[] memory targets = new address[](1);
         targets[0] = toToken;
         ISwapper.RouteInfo[] memory infos = ISwapper(swapperProxy).getRoutesFrom(fromToken, targets);
         assertFalse(infos[0].available, "cleared route should be unavailable");
         assertEq(infos[0].swapExecutor, address(0), "cleared route executor should be address(0)");
+        assertEq(infos[0].routeCostRatio, 0, "cleared route cost should be zero");
     }
 
     /// @notice Non-owner reverts; owner call stores route successfully.

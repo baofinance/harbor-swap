@@ -126,8 +126,8 @@ BaoFactory proxy → v1 upgrade. Swap unit tests under `test/swap/` call the sam
 fork tests under `test/swap/fork/` (require `MAINNET_RPC_URL`):
 
 ```bash
-forge test --match-path "test/swap/**"                          # unit + fork (forks skip without RPC)
-forge test --match-path "test/swap/fork/**" --fork-url "$MAINNET_RPC_URL"
+forge test --match-path "test/swap/**" --no-match-path "test/swap/fork/**"   # unit only
+forge test --match-path "test/swap/fork/**" --fork-url "$MAINNET_RPC_URL"    # requires MAINNET_RPC_URL
 ```
 
 Full ETH-stack HY integration (registry + oracles + `HarborYield_v1`) lives in the Harbor
@@ -247,8 +247,9 @@ ISwapperConfig(swapper).setRoute(fromToken, toToken, executorProxy, routeCostRat
 - `executorProxy` = CREATE3 address of the executor (e.g. `_predictAddress("uniV3Swapper")`).
 - `routeCostRatio` = expected route cost (fee + expected slippage) as a 1e18-scaled ratio
   (e.g. `3e15` = 0.3%). Surfaced on `RouteInfo.routeCostRatio`. HarborYield reads this in
-  `distribute()` as the minting threshold — set it **≥** the real pool fee so residual
-  swaps only run when economically sensible.
+  `distribute()` as the minting threshold — configure it to cover the real pool fee **and**
+  expected slippage (do not use the pool fee alone), so residual swaps only run when
+  economically sensible.
 - Pass `executor = address(0)` to remove a registry entry.
 
 ### Example — ETH peg fxSAVE ↔ wstETH (FxSaveWstEthSwapper)
@@ -485,7 +486,7 @@ an ops multisig).
 
 ```bash
 forge build
-forge test --match-path "test/swap/**" -vv
+forge test --match-path "test/swap/**" --no-match-path "test/swap/fork/**" -vv
 # Pinned mainnet forks (require MAINNET_RPC_URL):
 forge test --match-path "test/swap/fork/**" --fork-url "$MAINNET_RPC_URL" -vv
 ```
