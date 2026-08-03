@@ -241,13 +241,13 @@ Clear a route: UniV3 `setPath(from, to, "")`; Curve `setRoute(..., pool=0, ...)`
 ### Layer 2 — Registry
 
 ```solidity
-ISwapperConfig(swapper).setRoute(fromToken, toToken, executorProxy, feeRatio);
+ISwapperConfig(swapper).setRoute(fromToken, toToken, executorProxy, routeCostRatio);
 ```
 
 - `executorProxy` = CREATE3 address of the executor (e.g. `_predictAddress("uniV3Swapper")`).
-- `feeRatio` = effective swap fee as 1e18-scaled ratio (e.g. `3e15` = 0.3%). Surfaced on
-  `RouteInfo.routeCostRatio` (v1 never sets `quoted` / `amountOut`). HarborYield reads this
-  in `distribute()` as the minting threshold — set it **≥** the real pool fee so residual
+- `routeCostRatio` = expected route cost (fee + expected slippage) as a 1e18-scaled ratio
+  (e.g. `3e15` = 0.3%). Surfaced on `RouteInfo.routeCostRatio`. HarborYield reads this in
+  `distribute()` as the minting threshold — set it **≥** the real pool fee so residual
   swaps only run when economically sensible.
 - Pass `executor = address(0)` to remove a registry entry.
 
@@ -263,12 +263,12 @@ address fxSaveWstEth = _predictAddress("fxSaveWstEthSwapper");
 
 // Layer 2 (registry) — `Deploy_Swap.configureFxSaveWstEthRoutes()` on standalone deploy,
 // or equivalent in consumer _configureSwapRoutes:
-ISwapperConfig(swapper).setRoute(FXSAVE, WSTETH, fxSaveWstEth, FXSAVE_TO_WSTETH_FEE_RATIO);
-ISwapperConfig(swapper).setRoute(WSTETH, FXSAVE, fxSaveWstEth, WSTETH_TO_FXSAVE_FEE_RATIO);
+ISwapperConfig(swapper).setRoute(FXSAVE, WSTETH, fxSaveWstEth, FXSAVE_TO_WSTETH_ROUTE_COST_RATIO);
+ISwapperConfig(swapper).setRoute(WSTETH, FXSAVE, fxSaveWstEth, WSTETH_TO_FXSAVE_ROUTE_COST_RATIO);
 ```
 
-Fee constants: [`ConfigSwap_ETH_mainnet`](src/config/ConfigSwap_ETH_mainnet.sol)
-(`FXSAVE_TO_WSTETH_FEE_RATIO`, `WSTETH_TO_FXSAVE_FEE_RATIO`). On pegs where wrapped
+Route-cost constants: [`ConfigSwap_ETH_mainnet`](src/config/ConfigSwap_ETH_mainnet.sol)
+(`FXSAVE_TO_WSTETH_ROUTE_COST_RATIO`, `WSTETH_TO_FXSAVE_ROUTE_COST_RATIO`). On pegs where wrapped
 collateral differs from mainnet `FXSAVE`, use the peg's wrapped collateral address instead of
 `FXSAVE` in `setRoute` (executor impl still uses mainnet venue constants).
 
@@ -294,7 +294,7 @@ For pairs wired through `UniV3Swapper_v1`:
 
 ```solidity
 // Layer 2 (registry):
-ISwapperConfig(swapper).setRoute(fromToken, toToken, uniV3Swapper, feeRatio);
+ISwapperConfig(swapper).setRoute(fromToken, toToken, uniV3Swapper, routeCostRatio);
 
 // Layer 1 (UniV3 path) — governance / post-deploy:
 UniV3Swapper_v1(uniV3Swapper).setPath(
@@ -304,7 +304,7 @@ UniV3Swapper_v1(uniV3Swapper).setPath(
 );
 ```
 
-Until Layer 1 is set, `getRoutesFrom` / `getRoute` return the executor (`quoted = false`) but
+Until Layer 1 is set, `getRoutesFrom` / `getRoute` return the executor but
 `UniV3Swapper.swap` reverts with `NoPathConfigured`.
 
 ### Consumer wiring pattern
@@ -497,12 +497,12 @@ On-chain reads after deploy (replace addresses):
 
 ```solidity
 // Registry (single pair or legacy storage reads)
-ISwapper.RouteInfo memory info = Swapper_v1(swapper).getRoute(from, to, amountIn);
+ISwapper.RouteInfo memory info = Swapper_v1(swapper).getRoute(from, to);
 Swapper_v1(swapper).swapExecutors(from, to);
-Swapper_v1(swapper).swapFeeRatios(from, to);
+Swapper_v1(swapper).routeCostRatios(from, to);
 
 // Config events (index from block logs after setRoute / setPath)
-// Swapper_v1:     RouteUpdated(from, to, executor, feeRatio)
+// Swapper_v1:     RouteUpdated(from, to, executor, routeCostRatio)
 // UniV3Swapper:   PathSet(from, to, path)
 // Curve/Balancer: RouteSet(...)
 // VeloraSwapper / OneInchSwapper: AggregatorSwap(...) on each swap
