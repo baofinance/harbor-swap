@@ -28,7 +28,7 @@ src/swap/aggregator/VeloraSwapper_v1.sol:VeloraSwapper_v1
 | ROUTER           |    282 | 2.820e+02 |
 | initialize       |  70340 | 7.034e+04 |
 | proxiableUUID    |    363 | 3.630e+02 |
-| swap             | 210938 | 2.109e+05 |
+| swap             | 211576 | 2.116e+05 |
 | sweep            |  37825 | 3.782e+04 |
 | upgradeToAndCall |   5556 | 5.556e+03 |
 
