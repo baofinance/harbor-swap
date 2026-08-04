@@ -35,9 +35,9 @@ contract Swapper_v1 is// solhint-disable-line contract-name-capwords
     struct SwapperStorage {
         /// @notice Swap executor address per token pair. address(0) = no route configured.
         mapping(address from => mapping(address to => address)) swapExecutors;
-        /// @notice Effective swap fee for each pair as a 1e18-scaled ratio (1e18 = 100%).
+        /// @notice Expected route cost per pair as a 1e18-scaled ratio (1e18 = 100%).
         ///         Set atomically with swapExecutors via setRoute.
-        mapping(address from => mapping(address to => uint256)) swapFeeRatios;
+        mapping(address from => mapping(address to => uint256)) routeCostRatios;
     }
 
     function _getSwapperStorage() private pure returns (SwapperStorage storage $) {
@@ -60,8 +60,8 @@ contract Swapper_v1 is// solhint-disable-line contract-name-capwords
         return _getSwapperStorage().swapExecutors[from][to];
     }
 
-    function swapFeeRatios(address from, address to) external view returns (uint256) {
-        return _getSwapperStorage().swapFeeRatios[from][to];
+    function routeCostRatios(address from, address to) external view returns (uint256) {
+        return _getSwapperStorage().routeCostRatios[from][to];
     }
 
     /// @inheritdoc ISwapperConfig
@@ -69,50 +69,37 @@ contract Swapper_v1 is// solhint-disable-line contract-name-capwords
         address fromToken,
         address toToken,
         address swapExecutor,
-        uint256 feeRatio
+        uint256 routeCostRatio
     ) external override onlyOwnerOrRoles(ROUTE_SETTER_ROLE) {
         SwapperStorage storage $ = _getSwapperStorage();
         $.swapExecutors[fromToken][toToken] = swapExecutor;
-        $.swapFeeRatios[fromToken][toToken] = swapExecutor != address(0) ? feeRatio : 0;
-        emit RouteUpdated(fromToken, toToken, swapExecutor, $.swapFeeRatios[fromToken][toToken]);
+        $.routeCostRatios[fromToken][toToken] = swapExecutor != address(0) ? routeCostRatio : 0;
+        emit RouteUpdated(fromToken, toToken, swapExecutor, $.routeCostRatios[fromToken][toToken]);
     }
 
     /// @inheritdoc ISwapper
-    function getRoute(
-        address fromToken,
-        address toToken,
-        uint256 amountIn
-    ) external view override returns (RouteInfo memory routeInfo) {
-        routeInfo = _routeInfo(fromToken, toToken, amountIn);
+    function getRoute(address fromToken, address toToken) external view override returns (RouteInfo memory routeInfo) {
+        routeInfo = _routeInfo(fromToken, toToken);
     }
 
     /// @inheritdoc ISwapper
     function getRoutesFrom(
         address fromToken,
-        address[] calldata targets,
-        uint256 amountIn
+        address[] calldata targets
     ) external view override returns (RouteInfo[] memory routeInfos) {
         routeInfos = new RouteInfo[](targets.length);
         for (uint256 i = 0; i < targets.length; i++) {
-            routeInfos[i] = _routeInfo(fromToken, targets[i], amountIn);
+            routeInfos[i] = _routeInfo(fromToken, targets[i]);
         }
     }
 
-    /// @dev Pure-registry fill: always `quoted = false` / `amountOut = 0`. `amountIn` is unused
-    ///      until an executor can price on-chain; keep the arg so callers can migrate once.
-    function _routeInfo(
-        address fromToken,
-        address toToken,
-        uint256 /* amountIn */
-    ) private view returns (RouteInfo memory routeInfo) {
+    function _routeInfo(address fromToken, address toToken) private view returns (RouteInfo memory routeInfo) {
         SwapperStorage storage $ = _getSwapperStorage();
         address exec = $.swapExecutors[fromToken][toToken];
         routeInfo = RouteInfo({
             target: toToken,
             available: exec != address(0),
-            amountOut: 0,
-            quoted: false,
-            routeCostRatio: exec != address(0) ? $.swapFeeRatios[fromToken][toToken] : 0,
+            routeCostRatio: exec != address(0) ? $.routeCostRatios[fromToken][toToken] : 0,
             swapExecutor: exec
         });
     }

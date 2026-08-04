@@ -52,10 +52,8 @@ Harbor swap supports two distinct execution paths, chosen per call site by the c
 
 `HarborYield_v1.distribute()` and other latency- or peg-critical flows do:
 
-1. One batched `ISwapper.getRoutesFrom(from, targets, amountIn)` view call.
-   Use `routeCostRatio` at execute (minting threshold / cost). Live prices stay off-chain;
-   `quoted` is always false in v1 (`amountIn` / `amountOut` reserved for a future optional
-   on-chain quote).
+1. One batched `ISwapper.getRoutesFrom(from, targets)` view call.
+   Use `routeCostRatio` at execute (minting threshold / cost). Live prices stay off-chain.
 2. For each target with `available == true`, call `ISwapExecutor(swapExecutor).swap(from, to,
    amountIn, minAmountOut)` **directly** — no per-tx calldata.
 
@@ -137,23 +135,22 @@ Route changes emit events for indexers and deploy verification:
 
 | Contract | Event | When |
 |----------|-------|------|
-| `Swapper_v1` | `RouteUpdated(from, to, executor, feeRatio)` | `setRoute` (executor `address(0)` = cleared) |
+| `Swapper_v1` | `RouteUpdated(from, to, executor, routeCostRatio)` | `setRoute` (executor `address(0)` = cleared) |
 | `UniV3Swapper_v1` | `PathSet(from, to, path)` | `setPath` |
 | `CurveSwapper_v1` | `RouteSet(...)` | `setRoute` |
 | `BalancerSwapper_v1` | `RouteSet(...)` | `setRoute` |
 | `VeloraSwapper_v1` / `OneInchSwapper_v1` | `AggregatorSwap(...)` | each `swap` |
 | `FxSaveWstEthSwapper_v1` | `FxSaveWstEthSwap(...)` | each `swap` |
 
-Off-chain tooling can also call `ISwapper.getRoute(from, to, amountIn)` for a single pair
+Off-chain tooling can also call `ISwapper.getRoute(from, to)` for a single pair
 without building a one-element `targets` array.
 
 ## Public interface contract
 
 External code should depend on the **interfaces only**:
 
-- [`ISwapper`](interfaces/ISwapper.sol) — read side. `getRoutesFrom` / `getRoute` take
-  `amountIn` and return `RouteInfo` with optional `quoted` / `amountOut` (always unquoted
-  in `Swapper_v1`; use `routeCostRatio`).
+- [`ISwapper`](interfaces/ISwapper.sol) — read side. `getRoutesFrom` / `getRoute` return
+  `RouteInfo` with availability, `routeCostRatio`, and `swapExecutor`.
 - [`ISwapperConfig`](interfaces/ISwapperConfig.sol) — admin side. Per-pair `setRoute` and
   `RouteUpdated` event.
 - [`ISwapExecutor`](interfaces/ISwapExecutor.sol) — execution side. Stable four-argument
@@ -255,7 +252,7 @@ wiring per pair:
    - `CurveSwapper_v1.setRoute(from, to, pool, i, j, useUnderlying)`
    - `BalancerSwapper_v1.setRoute(from, to, poolId)`
 2. Register the executor in the registry via
-   `ISwapperConfig.setRoute(from, to, executorProxy, feeRatio)` so `Swapper_v1` knows
+   `ISwapperConfig.setRoute(from, to, executorProxy, routeCostRatio)` so `Swapper_v1` knows
    which executor to dispatch to for that pair.
 
 Aggregator wiring bypasses the registry: deploy `veloraSwapper` (primary) and optionally `oneInchSwapper`, then grant

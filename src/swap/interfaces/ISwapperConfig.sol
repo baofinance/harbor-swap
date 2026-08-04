@@ -7,18 +7,19 @@ pragma solidity >=0.8.28 <0.9.0;
 interface ISwapperConfig {
     /// @notice Emitted when a registry route is created, updated, or cleared.
     /// @param swapExecutor `address(0)` when the route is removed.
+    /// @param routeCostRatio Configured expected cost (fee + expected slippage), 1e18-scaled.
     event RouteUpdated(
         address indexed fromToken,
         address indexed toToken,
         address indexed swapExecutor,
-        uint256 feeRatio
+        uint256 routeCostRatio
     );
 
-    /// @notice Configure the swap executor and fee for a token pair.
+    /// @notice Configure the swap executor and expected route cost for a token pair.
     /// @param fromToken Token to swap from.
     /// @param toToken Token to swap to.
     /// @param swapExecutor Address of the ISwapExecutor implementation (e.g. UniV3Swapper_v1).
     ///                     Pass address(0) to remove a route.
-    /// @param feeRatio Effective swap fee as a 1e18-scaled ratio (e.g. 3e15 = 0.3%).
-    function setRoute(address fromToken, address toToken, address swapExecutor, uint256 feeRatio) external;
+    /// @param routeCostRatio Expected swap cost as a 1e18-scaled ratio (e.g. 3e15 = 0.3%).
+    function setRoute(address fromToken, address toToken, address swapExecutor, uint256 routeCostRatio) external;
 }

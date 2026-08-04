@@ -50,7 +50,7 @@ abstract contract Deploy_Swap is HarborSwapDeployStack, ConfigSwap_ETH_mainnet {
         console.log("  Swapper:           %s", swapper);
         console.log("  FxSaveWstEth exec: %s", fxSaveWstEth);
 
-        ISwapperConfig(swapper).setRoute(FXSAVE, WSTETH, fxSaveWstEth, FXSAVE_TO_WSTETH_FEE_RATIO);
-        ISwapperConfig(swapper).setRoute(WSTETH, FXSAVE, fxSaveWstEth, WSTETH_TO_FXSAVE_FEE_RATIO);
+        ISwapperConfig(swapper).setRoute(FXSAVE, WSTETH, fxSaveWstEth, FXSAVE_TO_WSTETH_ROUTE_COST_RATIO);
+        ISwapperConfig(swapper).setRoute(WSTETH, FXSAVE, fxSaveWstEth, WSTETH_TO_FXSAVE_ROUTE_COST_RATIO);
     }
 }

@@ -34,8 +34,8 @@ contract MockSwapper is Initializable, UUPSUpgradeable, ISwapper, ISwapperConfig
     ///         swap() on this same mock contract.
     mapping(address => mapping(address => address)) public recordedExecutors;
 
-    /// @notice Recorded fee ratios from setRoute calls.
-    mapping(address => mapping(address => uint256)) public recordedFeeRatios;
+    /// @notice Recorded route cost ratios from setRoute calls.
+    mapping(address => mapping(address => uint256)) public recordedRouteCostRatios;
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
@@ -62,26 +62,25 @@ contract MockSwapper is Initializable, UUPSUpgradeable, ISwapper, ISwapperConfig
 
     /// @inheritdoc ISwapperConfig
     /// @dev When swapExecutor is address(0) the route is cleared; otherwise we store address(this)
-    ///      as the executor so HarborYield's approval and swap call land on this mock.
-    function setRoute(address fromToken, address toToken, address swapExecutor, uint256 feeRatio) external override {
+    ///      as the executor so HY's approval and swap call land on this mock.
+    function setRoute(
+        address fromToken,
+        address toToken,
+        address swapExecutor,
+        uint256 routeCostRatio
+    ) external override {
         recordedExecutors[fromToken][toToken] = swapExecutor;
-        recordedFeeRatios[fromToken][toToken] = swapExecutor != address(0) ? feeRatio : 0;
-        emit RouteUpdated(fromToken, toToken, swapExecutor, recordedFeeRatios[fromToken][toToken]);
+        recordedRouteCostRatios[fromToken][toToken] = swapExecutor != address(0) ? routeCostRatio : 0;
+        emit RouteUpdated(fromToken, toToken, swapExecutor, recordedRouteCostRatios[fromToken][toToken]);
     }
 
     /// @inheritdoc ISwapper
-    function getRoute(
-        address fromToken,
-        address toToken,
-        uint256 /* amountIn */
-    ) external view override returns (RouteInfo memory routeInfo) {
+    function getRoute(address fromToken, address toToken) external view override returns (RouteInfo memory routeInfo) {
         address exec = recordedExecutors[fromToken][toToken];
         routeInfo = RouteInfo({
             target: toToken,
             available: exec != address(0),
-            amountOut: 0,
-            quoted: false,
-            routeCostRatio: exec != address(0) ? recordedFeeRatios[fromToken][toToken] : 0,
+            routeCostRatio: exec != address(0) ? recordedRouteCostRatios[fromToken][toToken] : 0,
             swapExecutor: exec
         });
     }
@@ -89,8 +88,7 @@ contract MockSwapper is Initializable, UUPSUpgradeable, ISwapper, ISwapperConfig
     /// @inheritdoc ISwapper
     function getRoutesFrom(
         address fromToken,
-        address[] calldata targets,
-        uint256 /* amountIn */
+        address[] calldata targets
     ) external view override returns (RouteInfo[] memory routeInfos) {
         routeInfos = new RouteInfo[](targets.length);
         for (uint256 i = 0; i < targets.length; i++) {
@@ -98,9 +96,7 @@ contract MockSwapper is Initializable, UUPSUpgradeable, ISwapper, ISwapperConfig
             routeInfos[i] = RouteInfo({
                 target: targets[i],
                 available: exec != address(0),
-                amountOut: 0,
-                quoted: false,
-                routeCostRatio: exec != address(0) ? recordedFeeRatios[fromToken][targets[i]] : 0,
+                routeCostRatio: exec != address(0) ? recordedRouteCostRatios[fromToken][targets[i]] : 0,
                 swapExecutor: exec
             });
         }

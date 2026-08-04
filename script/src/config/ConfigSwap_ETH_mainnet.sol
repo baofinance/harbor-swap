@@ -12,8 +12,8 @@ abstract contract ConfigSwap_ETH_mainnet {
     /// @notice Mainnet Uniswap v3 SwapRouter.
     address internal constant UNIV3_ROUTER_MAINNET = 0xE592427A0AEce92De3Edee1F18E0157C05861564;
 
-    /// @notice Fee estimate for fxSAVE → wstETH registry entry (1e18-scaled; 3e15 = 0.3%).
-    uint256 internal constant FXSAVE_TO_WSTETH_FEE_RATIO = 3e15;
-    /// @notice Fee estimate for wstETH → fxSAVE registry entry (1e18-scaled; 3e15 = 0.3%).
-    uint256 internal constant WSTETH_TO_FXSAVE_FEE_RATIO = 3e15;
+    /// @notice Expected route cost for fxSAVE → wstETH registry entry (1e18-scaled; 3e15 = 0.3%).
+    uint256 internal constant FXSAVE_TO_WSTETH_ROUTE_COST_RATIO = 3e15;
+    /// @notice Expected route cost for wstETH → fxSAVE registry entry (1e18-scaled; 3e15 = 0.3%).
+    uint256 internal constant WSTETH_TO_FXSAVE_ROUTE_COST_RATIO = 3e15;
 }

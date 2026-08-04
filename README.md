@@ -15,11 +15,12 @@ Harbor Yield and other Harbor products.
 ```bash
 git submodule update --init --recursive
 forge build
-forge test --match-path "test/swap/**"
+forge test --match-path "test/swap/**" --no-match-path "test/swap/fork/**"
 ```
 
 **Test scope:** mock-based unit tests under `test/swap/` plus pinned mainnet fork tests under
-`test/swap/fork/` (require `MAINNET_RPC_URL`). All executors and aggregator adapters share
+`test/swap/fork/` (require `MAINNET_RPC_URL`; run separately with
+`forge test --match-path "test/swap/fork/**" --fork-url "$MAINNET_RPC_URL"`). All executors and aggregator adapters share
 `SwapExecutorBase` — notably `amountOut == 0` always reverts (`ZeroAmountOut`), even when
 `minAmountOut == 0`.
 

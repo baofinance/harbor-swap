@@ -2,7 +2,7 @@
 pragma solidity >=0.8.28 <0.9.0;
 
 // Tests Swapper_v1: pure registry that maps (from, to) → {swapExecutor, routeCostRatio}.
-// Verifies setRoute storage, getRoutesFrom batch queries (unquoted), and access control.
+// Verifies setRoute storage, getRoutesFrom batch queries, and access control.
 // Uses the deploy script (Swapper.sol) so the CREATE3 proxy path is exercised.
 
 import {BaoTest} from "@bao-test/BaoTest.sol";
@@ -43,7 +43,7 @@ contract SwapperTest is BaoTest, Swapper {
     // ── Infrastructure addresses ─────────────────────────────────────
     address swapperProxy;
 
-    uint256 constant FEE_RATIO = 3e15; // 0.3% as a 1e18-scaled ratio
+    uint256 constant ROUTE_COST_RATIO = 3e15; // 0.3% as a 1e18-scaled ratio
     string constant SALT_PREFIX = "test_swapper";
 
     function setUp() public {
@@ -65,35 +65,37 @@ contract SwapperTest is BaoTest, Swapper {
     // ── Helpers ───────────────────────────────────────────────────────
 
     function _configureRoute() internal {
-        Swapper_v1(swapperProxy).setRoute(fromToken, toToken, mockExecutor, FEE_RATIO);
+        Swapper_v1(swapperProxy).setRoute(fromToken, toToken, mockExecutor, ROUTE_COST_RATIO);
     }
 
     // ── Tests ─────────────────────────────────────────────────────────
 
-    /// @notice setRoute stores executor and feeRatio; public mappings reflect both.
-    function test_setRoute_storesExecutorAndFee() public {
+    /// @notice setRoute stores executor and routeCostRatio; public mappings reflect both.
+    function test_setRoute_storesExecutorAndRouteCost() public {
         _configureRoute();
         assertEq(Swapper_v1(swapperProxy).swapExecutors(fromToken, toToken), mockExecutor);
-        assertEq(Swapper_v1(swapperProxy).swapFeeRatios(fromToken, toToken), FEE_RATIO);
+        assertEq(Swapper_v1(swapperProxy).routeCostRatios(fromToken, toToken), ROUTE_COST_RATIO);
     }
 
     /// @notice setRoute(from, to, address(0), 0) clears the route; getRoutesFrom reports unavailable.
     function test_setRoute_zeroAddress_clearsRoute() public {
         _configureRoute();
         Swapper_v1(swapperProxy).setRoute(fromToken, toToken, address(0), 0);
+        assertEq(Swapper_v1(swapperProxy).routeCostRatios(fromToken, toToken), 0);
 
         address[] memory targets = new address[](1);
         targets[0] = toToken;
-        ISwapper.RouteInfo[] memory infos = ISwapper(swapperProxy).getRoutesFrom(fromToken, targets, 0);
+        ISwapper.RouteInfo[] memory infos = ISwapper(swapperProxy).getRoutesFrom(fromToken, targets);
         assertFalse(infos[0].available, "cleared route should be unavailable");
         assertEq(infos[0].swapExecutor, address(0), "cleared route executor should be address(0)");
+        assertEq(infos[0].routeCostRatio, 0, "cleared route cost should be zero");
     }
 
     /// @notice Non-owner reverts; owner call stores route successfully.
     function test_setRoute_onlyOwner() public {
         vm.prank(alice);
         vm.expectRevert();
-        Swapper_v1(swapperProxy).setRoute(fromToken, toToken, mockExecutor, FEE_RATIO);
+        Swapper_v1(swapperProxy).setRoute(fromToken, toToken, mockExecutor, ROUTE_COST_RATIO);
 
         _configureRoute();
         assertEq(Swapper_v1(swapperProxy).swapExecutors(fromToken, toToken), mockExecutor);
@@ -104,7 +106,7 @@ contract SwapperTest is BaoTest, Swapper {
         Swapper_v1(swapperProxy).grantRoles(routeSetter, Swapper_v1(swapperProxy).ROUTE_SETTER_ROLE());
 
         vm.prank(routeSetter);
-        Swapper_v1(swapperProxy).setRoute(fromToken, toToken, mockExecutor, FEE_RATIO);
+        Swapper_v1(swapperProxy).setRoute(fromToken, toToken, mockExecutor, ROUTE_COST_RATIO);
 
         assertEq(Swapper_v1(swapperProxy).swapExecutors(fromToken, toToken), mockExecutor);
     }
@@ -113,7 +115,7 @@ contract SwapperTest is BaoTest, Swapper {
     function test_setRoute_calledByStranger_reverts() public {
         vm.prank(alice);
         vm.expectRevert();
-        Swapper_v1(swapperProxy).setRoute(fromToken, toToken, mockExecutor, FEE_RATIO);
+        Swapper_v1(swapperProxy).setRoute(fromToken, toToken, mockExecutor, ROUTE_COST_RATIO);
     }
 
     /// @notice getRoutesFrom returns the swap executor address for a configured pair.
@@ -121,7 +123,7 @@ contract SwapperTest is BaoTest, Swapper {
         _configureRoute();
         address[] memory targets = new address[](1);
         targets[0] = toToken;
-        ISwapper.RouteInfo[] memory infos = ISwapper(swapperProxy).getRoutesFrom(fromToken, targets, 1 ether);
+        ISwapper.RouteInfo[] memory infos = ISwapper(swapperProxy).getRoutesFrom(fromToken, targets);
         assertEq(infos[0].swapExecutor, mockExecutor, "swapExecutor should match configured address");
     }
 
@@ -133,7 +135,7 @@ contract SwapperTest is BaoTest, Swapper {
         targets[0] = toToken;
         targets[1] = midToken; // not configured
 
-        ISwapper.RouteInfo[] memory infos = ISwapper(swapperProxy).getRoutesFrom(fromToken, targets, 1 ether);
+        ISwapper.RouteInfo[] memory infos = ISwapper(swapperProxy).getRoutesFrom(fromToken, targets);
 
         assertEq(infos.length, 2);
         assertTrue(infos[0].available, "configured pair: available=true");
@@ -143,39 +145,35 @@ contract SwapperTest is BaoTest, Swapper {
         assertEq(infos[1].swapExecutor, address(0), "unconfigured pair: executor=address(0)");
     }
 
-    /// @notice getRoutesFrom returns the routeCostRatio stored via setRoute's feeRatio.
-    function test_getRoutesFrom_returnsCorrectFee() public {
+    /// @notice getRoutesFrom returns the routeCostRatio stored via setRoute.
+    function test_getRoutesFrom_returnsCorrectRouteCost() public {
         uint256 customRatio = 1e16; // 1%
         Swapper_v1(swapperProxy).setRoute(fromToken, toToken, mockExecutor, customRatio);
 
         address[] memory targets = new address[](1);
         targets[0] = toToken;
 
-        ISwapper.RouteInfo[] memory infos = ISwapper(swapperProxy).getRoutesFrom(fromToken, targets, 1 ether);
+        ISwapper.RouteInfo[] memory infos = ISwapper(swapperProxy).getRoutesFrom(fromToken, targets);
 
         assertEq(infos[0].routeCostRatio, customRatio, "routeCostRatio matches stored value");
-        assertFalse(infos[0].quoted, "v1 registry never quotes on-chain");
-        assertEq(infos[0].amountOut, 0, "unquoted amountOut is zero");
     }
 
     /// @notice getRoutesFrom with an empty targets array returns an empty result without reverting.
     function test_getRoutesFrom_emptyTargets() public view {
         address[] memory targets = new address[](0);
-        ISwapper.RouteInfo[] memory infos = ISwapper(swapperProxy).getRoutesFrom(fromToken, targets, 0);
+        ISwapper.RouteInfo[] memory infos = ISwapper(swapperProxy).getRoutesFrom(fromToken, targets);
         assertEq(infos.length, 0, "empty targets: empty result");
     }
 
     /// @notice getRoute returns the same RouteInfo as a single-element getRoutesFrom batch.
     function test_getRoute_matchesGetRoutesFrom() public {
         _configureRoute();
-        ISwapper.RouteInfo memory single = ISwapper(swapperProxy).getRoute(fromToken, toToken, 1 ether);
+        ISwapper.RouteInfo memory single = ISwapper(swapperProxy).getRoute(fromToken, toToken);
         address[] memory targets = new address[](1);
         targets[0] = toToken;
-        ISwapper.RouteInfo[] memory batch = ISwapper(swapperProxy).getRoutesFrom(fromToken, targets, 1 ether);
+        ISwapper.RouteInfo[] memory batch = ISwapper(swapperProxy).getRoutesFrom(fromToken, targets);
         assertEq(single.target, batch[0].target);
         assertEq(single.available, batch[0].available);
-        assertEq(single.amountOut, batch[0].amountOut);
-        assertEq(single.quoted, batch[0].quoted);
         assertEq(single.routeCostRatio, batch[0].routeCostRatio);
         assertEq(single.swapExecutor, batch[0].swapExecutor);
     }
@@ -183,7 +181,7 @@ contract SwapperTest is BaoTest, Swapper {
     /// @notice setRoute emits RouteUpdated for off-chain indexing.
     function test_setRoute_emitsRouteUpdated() public {
         vm.expectEmit(true, true, true, true);
-        emit ISwapperConfig.RouteUpdated(fromToken, toToken, mockExecutor, FEE_RATIO);
-        Swapper_v1(swapperProxy).setRoute(fromToken, toToken, mockExecutor, FEE_RATIO);
+        emit ISwapperConfig.RouteUpdated(fromToken, toToken, mockExecutor, ROUTE_COST_RATIO);
+        Swapper_v1(swapperProxy).setRoute(fromToken, toToken, mockExecutor, ROUTE_COST_RATIO);
     }
 }
