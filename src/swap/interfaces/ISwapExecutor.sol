@@ -2,8 +2,9 @@
 pragma solidity >=0.8.28 <0.9.0;
 
 /// @title ISwapExecutor
-/// @notice Interface implemented by DEX-specific swap executor contracts (e.g. UniV3Swapper_v1).
-///         HarborYield calls this directly, using the address returned by ISwapper.getRoutesFrom.
+/// @notice Interface implemented by the venue-specific swap executor contracts in harbor-swap
+///         (UniV3Swapper_v1, CurveSwapper_v1, …). HarborYield calls one directly, at the address
+///         ISwapper.getRoutesFrom returned for the route.
 interface ISwapExecutor {
     /// @notice Execute a token swap. Pulls fromToken from msg.sender and delivers toToken to msg.sender.
     ///         Unspent input is refunded, so `amountIn` is a limit rather than a promise.
