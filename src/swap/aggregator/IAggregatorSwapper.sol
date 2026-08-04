@@ -13,7 +13,7 @@ pragma solidity >=0.8.28 <0.9.0;
 ///      router and not the keeper's EOA). In HarborYield `redistribute`, `msg.sender` is
 ///      HarborYield itself; VaultManager then re-winds that refund into `fromVault` as vault
 ///      shares, so partial fills return to the source ERC4626 vault rather than stranding at
-///      HY or paying the role holder.
+///      HarborYield or paying the role holder.
 interface IAggregatorSwapper {
     /// @notice Emitted on every successful swap.
     event AggregatorSwap(

@@ -14,3 +14,4 @@ suite CPU (milliseconds)
 | test/swap/fork/CurveSwapperFork.t.sol:CurveSwapperForkTest               |             59 | 0.06s |
 | test/swap/fork/FxSaveWstEthSwapperFork.t.sol:FxSaveWstEthSwapperForkTest |             11 | 0.01s |
 | test/swap/fork/UniV3SwapperFork.t.sol:UniV3SwapperForkTest               |              3 | 0.00s |
+| test/swap/fork/VeloraSwapperFork.t.sol:VeloraSwapperForkTest             |            206 | 0.21s |

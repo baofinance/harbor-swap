@@ -126,12 +126,18 @@ BaoFactory proxy → v1 upgrade. Swap unit tests under `test/swap/` call the sam
 fork tests under `test/swap/fork/` (require `MAINNET_RPC_URL`):
 
 ```bash
-forge test --match-path "test/swap/**"                          # unit + fork (forks skip without RPC)
-forge test --match-path "test/swap/fork/**" --fork-url "$MAINNET_RPC_URL"
+yarn test --match-path "test/swap/**"                # unit + fork; FAILS without MAINNET_RPC_URL
+yarn test --match-path "test/swap/executors/**"      # unit only
 ```
 
-Full ETH-stack HY integration (registry + oracles + `HarborYield_v1`) lives in the Harbor
-Yield consumer repo.
+The fork tests do not skip when `MAINNET_RPC_URL` is unset — `ForkTestBase._forkMainnet` calls
+`vm.createSelectFork(vm.rpcUrl("mainnet"))` unguarded, and `foundry.toml` resolves the `mainnet`
+endpoint from that variable, so they fail. That is deliberate: a fork test that quietly skips
+reports green while proving nothing. Set the variable (see `.env.example`) or match a path that
+excludes `test/swap/fork/`.
+
+Full ETH-stack HarborYield integration (registry + oracles + `HarborYield_v1`) lives in the
+Harbor Yield consumer repo.
 
 ---
 

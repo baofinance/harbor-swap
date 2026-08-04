@@ -2,12 +2,12 @@
 pragma solidity >=0.8.28 <0.9.0;
 
 /// @title ISwapper
-/// @notice HY-facing interface for querying available swap routes.
+/// @notice HarborYield-facing interface for querying available swap routes.
 ///         Swapper_v1 is a pure registry: it maps (from, to) → {swapExecutor, routeCostRatio}.
 ///         HarborYield batch-queries getRoutesFrom() once per distribute() call, then calls
 ///         the returned swapExecutor directly for each swap — no if/else in the dispatcher.
-/// @dev Live pricing is done off-chain. At execute time HY needs `routeCostRatio` (configured
-///      via `setRoute`'s `feeRatio`) for cost / minting-threshold decisions. `amountIn` /
+/// @dev Live pricing is done off-chain. At execute time HarborYield needs `routeCostRatio`
+///      (configured via `setRoute`'s `feeRatio`) for cost / minting-threshold decisions. `amountIn` /
 ///      `amountOut` / `quoted` are ABI room for a future optional on-chain quote; Swapper_v1
 ///      always leaves `quoted = false` and `amountOut = 0`.
 interface ISwapper {
@@ -23,7 +23,7 @@ interface ISwapper {
 
     /// @notice Batch-query route availability, optional quote, cost, and executor for
     ///         fromToken → each target. Result is index-aligned: routeInfos[i] ↔ targets[i].
-    ///         O(N) storage reads in Swapper; one external call from HY.
+    ///         O(N) storage reads in Swapper; one external call from HarborYield.
     /// @param fromToken Token to swap from.
     /// @param targets Array of target tokens to query.
     /// @param amountIn Input size for a live quote when the venue supports one (ignored by v1).

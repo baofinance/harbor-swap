@@ -18,7 +18,7 @@ import {ConfigOneInch} from "@harbor-swap-script/config/ConfigOneInch.sol";
 import {ConfigBalancer} from "@harbor-swap-script/config/ConfigBalancer.sol";
 
 /// @notice Harbor Swapper deployment logic.
-/// @dev Swapper_v1 is a pure route registry shared across all HY peg instances. Direct
+/// @dev Swapper_v1 is a pure route registry shared across all HarborYield peg instances. Direct
 ///      executors (UniV3, Curve, Balancer) implement ISwapExecutor and are registered in
 ///      Swapper_v1 via setRoute(). Aggregator adapters (`VeloraSwapper_v1` primary, `OneInchSwapper_v1` optional) live
 ///      alongside the registry and are consumed directly by HarborYield_v1 via its role-gated

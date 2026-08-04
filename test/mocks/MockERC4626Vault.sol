@@ -11,13 +11,13 @@ import {MockERC20} from "@bao-test/mocks/MockERC20.sol";
 /// @notice Minimal ERC4626 vault for tests. Wraps an underlying MockERC20 and exposes an
 ///         `addYield` hook that mints extra underlying into the vault, simulating yield accrual.
 /// @dev Used by HarborYield_v1 unit tests and anywhere else an ERC4626 stand-in is needed without
-///      pulling in the full Minter/SP/AC deployment.
+///      pulling in the full Minter/StabilityPool/AutoCompounder deployment.
 ///
 ///      Optionally implements the `IAutoCompounderVault` introspection surface (`PEGGED_TOKEN()` and
-///      `MINTER()`) so tests can register a mock as an AC via `HarborYield.addAutoCompounderVault`.
+///      `MINTER()`) so tests can register a mock as an AutoCompounder via `HarborYield.addAutoCompounderVault`.
 ///      Configure via `configureAsAutoCompounder` after construction; both fields default to
-///      `address(0)`, i.e. "not an AC" (the getters return zero, which triggers `WrongPegToken`
-///      at registration — correct behaviour for a non-AC vault).
+///      `address(0)`, i.e. "not an AutoCompounder" (the getters return zero, which triggers `WrongPegToken`
+///      at registration — correct behaviour for a non-AutoCompounder vault).
 contract MockERC4626Vault is ERC4626 {
     address public _pegged;
     address public _minter;
@@ -37,25 +37,25 @@ contract MockERC4626Vault is ERC4626 {
     }
 
     // solhint-disable func-name-mixedcase
-    /// @notice `IAutoCompounderVault.PEGGED_TOKEN()` getter for test registration as an AC.
+    /// @notice `IAutoCompounderVault.PEGGED_TOKEN()` getter for test registration as an AutoCompounder.
     function PEGGED_TOKEN() external view returns (address) {
         return _pegged;
     }
 
-    /// @notice `IAutoCompounderVault.MINTER()` getter for test registration as an AC.
+    /// @notice `IAutoCompounderVault.MINTER()` getter for test registration as an AutoCompounder.
     function MINTER() external view returns (address) {
         return _minter;
     }
 
     /// @notice `IAutoCompounderVault.WRAPPED_COLLATERAL()` getter.
-    ///         For AC vaults, WRAPPED_COLLATERAL is the ERC4626 underlying asset.
+    ///         For AutoCompounder vaults, WRAPPED_COLLATERAL is the ERC4626 underlying asset.
     function WRAPPED_COLLATERAL() external view returns (address) {
         return asset();
     }
     // solhint-enable func-name-mixedcase
 
     /// @notice Simplified `IAutoCompounderVault.depositPeggedToken` for test usage.
-    ///         Pulls pegged tokens from the caller (HY approves before calling) and mints shares
+    ///         Pulls pegged tokens from the caller (HarborYield approves before calling) and mints shares
     ///         1:1 to receiver. Correct only when called on a fresh vault (no prior deposits).
     function depositPeggedToken(uint256 peggedAmount, address receiver) external returns (uint256 shares) {
         IERC20(_pegged).transferFrom(msg.sender, address(this), peggedAmount);

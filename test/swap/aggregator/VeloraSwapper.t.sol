@@ -178,6 +178,26 @@ contract VeloraSwapperTest is BaoTest, TokenHolderTestBase, SwapExecutorTestBase
         return _routerDataFor(fromToken, toToken, amountIn);
     }
 
+    /// @dev Exact-out calldata: `maxAmountIn` is the ceiling the router may spend, `targetOut`
+    ///      the exact output bought.
+    function _routerDataExactOut(
+        address fromToken_,
+        address toToken_,
+        uint256 maxAmountIn,
+        uint256 targetOut
+    ) internal pure returns (bytes memory) {
+        MockAugustusV62.GenericData memory data = MockAugustusV62.GenericData({
+            srcToken: fromToken_,
+            destToken: toToken_,
+            fromAmount: maxAmountIn,
+            toAmount: targetOut,
+            quotedAmount: 0,
+            metadata: bytes32(0),
+            beneficiary: address(0)
+        });
+        return abi.encodeCall(MockAugustusV62.swapExactAmountOut, (address(0), data, 0, hex"", hex""));
+    }
+
     function test_swap_happyPath() public {
         uint256 amountIn = AMOUNT_IN;
         _mintAndApprove(fromToken, veloraProxy, amountIn);
@@ -238,24 +258,24 @@ contract VeloraSwapperTest is BaoTest, TokenHolderTestBase, SwapExecutorTestBase
     }
 
     function test_swap_acceptsSwapExactAmountOutSelector() public view {
-        bytes memory data = abi.encodeCall(
-            MockAugustusV62.swapExactAmountOut,
-            (address(0), _swapData(fromToken, toToken, AMOUNT_IN), 0, hex"", hex"")
-        );
+        bytes memory data = _routerDataExactOut(fromToken, toToken, AMOUNT_IN, 1);
         assertEq(bytes4(data), VeloraV62Selectors.SWAP_EXACT_AMOUNT_OUT);
     }
 
+    /// @notice Exact-out buys exactly the output asked for, rather than spending the whole input.
     function test_swap_happyPath_swapExactAmountOut() public {
         uint256 amountIn = AMOUNT_IN;
+        uint256 targetOut = _expectedOut(amountIn);
         _mintAndApprove(fromToken, veloraProxy, amountIn);
 
-        bytes memory data = abi.encodeCall(
-            MockAugustusV62.swapExactAmountOut,
-            (address(0), _swapData(fromToken, toToken, amountIn), 0, hex"", hex"")
+        uint256 amountOut = IAggregatorSwapper(veloraProxy).swap(
+            fromToken,
+            toToken,
+            amountIn,
+            0,
+            _routerDataExactOut(fromToken, toToken, amountIn, targetOut)
         );
-
-        uint256 amountOut = IAggregatorSwapper(veloraProxy).swap(fromToken, toToken, amountIn, 0, data);
-        assertEq(amountOut, _expectedOut(amountIn));
+        assertEq(amountOut, targetOut, "exact-out delivers exactly the requested output");
     }
 
     function test_swap_tokensTransferred() public {
@@ -334,6 +354,105 @@ contract VeloraSwapperTest is BaoTest, TokenHolderTestBase, SwapExecutorTestBase
         assertEq(IERC20(fromToken).balanceOf(address(this)), amountIn - spent, "unspent portion refunded");
         assertEq(IERC20(fromToken).balanceOf(veloraProxy), 0);
         assertEq(IERC20(toToken).balanceOf(veloraProxy), 0);
+    }
+
+    /// @notice A partial fill at an HONEST rate is accepted. The floor binds the rate, so a venue that
+    ///         spends 60% of the order and pays 60% of the proceeds has not slipped at all — an
+    ///         absolute floor sized for the whole order would have rejected it, because the output
+    ///         shrinks with the fill while such a floor does not.
+    function test_swap_partialFill_atHonestRate_meetsTheFloor() public {
+        MockAugustusV62(router).setPartialFillRatio(0.6e18);
+        uint256 amountIn = AMOUNT_IN;
+        uint256 spent = (amountIn * 0.6e18) / 1e18;
+        _mintAndApprove(fromToken, veloraProxy, amountIn);
+
+        uint256 amountOut = IAggregatorSwapper(veloraProxy).swap(
+            fromToken,
+            toToken,
+            amountIn,
+            _expectedRatePerUnitIn(),
+            _routerData(amountIn)
+        );
+
+        assertEq(amountOut, _expectedOut(spent), "paid the venue's rate on what it actually spent");
+        assertEq(IERC20(fromToken).balanceOf(address(this)), amountIn - spent, "unspent portion refunded");
+    }
+
+    /// @notice A partial fill at a WORSE rate than demanded still reverts. This is the case a floor
+    ///         scaled down by the fill would wave through — it shrinks exactly as fast as the output it
+    ///         is meant to bound, so a sliver filled at any price would satisfy it.
+    function test_swap_partialFill_atPoorRate_reverts() public {
+        MockAugustusV62(router).setPartialFillRatio(0.6e18);
+        uint256 amountIn = AMOUNT_IN;
+        uint256 spent = (amountIn * 0.6e18) / 1e18;
+        _mintAndApprove(fromToken, veloraProxy, amountIn);
+        // Hoisted: each of these makes an external call, and an argument sub-expression would steal
+        // the expectRevert binding.
+        uint256 demandedRate = _expectedRatePerUnitIn() + 1; // a wei per unit better than the venue pays
+        uint256 required = _requiredOut(spent, demandedRate);
+        uint256 delivered = _expectedOut(spent);
+        bytes memory routerData = _routerData(amountIn);
+        assertLt(delivered, required, "sanity: the venue's rate is below the one demanded");
+
+        vm.expectRevert(abi.encodeWithSelector(SwapExecutorBase.InsufficientAmountOut.selector, delivered, required));
+        IAggregatorSwapper(veloraProxy).swap(fromToken, toToken, amountIn, demandedRate, routerData);
+    }
+
+    /// @notice On the exact-out entrypoint the router spends only what the requested output costs and
+    ///         the envelope refunds the rest. Under-spending is exact-out's normal mode, not a partial
+    ///         fill, which is why this path needs its own coverage rather than sharing the exact-in one.
+    function test_swap_exactOut_spendsLessThanAmountIn_refundsSurplus() public {
+        uint256 amountIn = AMOUNT_IN; // the ceiling the caller will pay, not the amount spent
+        uint256 spend = (amountIn * 0.6e18) / 1e18;
+        uint256 targetOut = _expectedOut(spend); // what 60% of the order buys at the venue's price
+        _mintAndApprove(fromToken, veloraProxy, amountIn);
+
+        vm.expectEmit(true, true, true, true);
+        emit IAggregatorSwapper.AggregatorSwap(
+            address(this),
+            fromToken,
+            toToken,
+            amountIn,
+            targetOut,
+            amountIn - spend
+        );
+
+        uint256 amountOut = IAggregatorSwapper(veloraProxy).swap(
+            fromToken,
+            toToken,
+            amountIn,
+            0,
+            _routerDataExactOut(fromToken, toToken, amountIn, targetOut)
+        );
+
+        assertEq(amountOut, targetOut, "exact-out delivers exactly the requested output");
+        assertEq(IERC20(fromToken).balanceOf(address(this)), amountIn - spend, "surplus input refunded");
+        assertEq(IERC20(fromToken).balanceOf(veloraProxy), 0, "no input residue");
+        assertEq(IERC20(toToken).balanceOf(veloraProxy), 0, "no output residue");
+    }
+
+    /// @notice When the price worsens, exact-out buys the same output for MORE input. The floor is
+    ///         judged against what was spent, so the extra input is what breaches it — the output
+    ///         alone is unchanged and would tell a floor nothing.
+    function test_swap_exactOut_atPoorPrice_reverts() public {
+        uint256 amountIn = AMOUNT_IN;
+        uint256 spend = (amountIn * 0.6e18) / 1e18;
+        uint256 targetOut = _expectedOut(spend);
+        uint256 demandedRate = _expectedRatePerUnitIn(); // the fair rate, captured before the move
+        _mintAndApprove(fromToken, veloraProxy, amountIn);
+
+        // The venue's price drops 20%, so the same output now costs 25% more input — still under the
+        // caller's ceiling, so it is the envelope's floor that must catch this, not the router's own
+        // maximum-input bound.
+        _setVenueRate((demandedRate * 80) / 100);
+        uint256 poorSpend = (spend * 100) / 80;
+        uint256 required = _requiredOut(poorSpend, demandedRate);
+        bytes memory routerData = _routerDataExactOut(fromToken, toToken, amountIn, targetOut);
+        assertLt(poorSpend, amountIn, "sanity: the spend stays under the caller's ceiling");
+        assertLt(targetOut, required, "sanity: the unchanged output no longer covers the floor");
+
+        vm.expectRevert(abi.encodeWithSelector(SwapExecutorBase.InsufficientAmountOut.selector, targetOut, required));
+        IAggregatorSwapper(veloraProxy).swap(fromToken, toToken, amountIn, demandedRate, routerData);
     }
 
     /// @notice The constructor rejects a router address with no code.

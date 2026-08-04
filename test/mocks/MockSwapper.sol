@@ -30,7 +30,7 @@ contract MockSwapper is Initializable, UUPSUpgradeable, ISwapper, ISwapperConfig
     bool public shouldRevert;
 
     /// @notice Recorded swap executors from setRoute calls.
-    ///         Non-zero value = route available. Returns address(this) so HY can call
+    ///         Non-zero value = route available. Returns address(this) so HarborYield can call
     ///         swap() on this same mock contract.
     mapping(address => mapping(address => address)) public recordedExecutors;
 
@@ -62,7 +62,7 @@ contract MockSwapper is Initializable, UUPSUpgradeable, ISwapper, ISwapperConfig
 
     /// @inheritdoc ISwapperConfig
     /// @dev When swapExecutor is address(0) the route is cleared; otherwise we store address(this)
-    ///      as the executor so HY's approval and swap call land on this mock.
+    ///      as the executor so HarborYield's approval and swap call land on this mock.
     function setRoute(address fromToken, address toToken, address swapExecutor, uint256 feeRatio) external override {
         recordedExecutors[fromToken][toToken] = swapExecutor;
         recordedFeeRatios[fromToken][toToken] = swapExecutor != address(0) ? feeRatio : 0;
