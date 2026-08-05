@@ -15,7 +15,7 @@ code.
 
 ```
 src/swap/
-  Swapper_v1.sol                    Pure route registry (from, to) -> {executor, feeRatio}
+  Swapper_v1.sol                    Pure route registry (from, to) -> {executor, routeCostRatio}
   interfaces/
     ISwapper.sol                    Read API: getRoutesFrom (batch) + getRoute (single pair)
     ISwapperConfig.sol              Admin API: setRoute + RouteUpdated event
@@ -31,11 +31,18 @@ src/swap/
     ConfigFxSaveWstEthRoute_ETH_mainnet.sol  Mainnet route constants for FxSaveWstEthSwapper
   aggregator/
     IAggregatorSwapper.sol          swap(from, to, in, minOut, bytes) interface
-    OneInchSwapper_v1.sol           Fixed-router (1inch v6) adapter, calldata-driven, refund-on-partial-fill
+    VeloraSwapper_v1.sol           Fixed-router (Velora Augustus v6.2) adapter on SwapExecutorBase
+    VeloraV62Selectors.sol         Allowed Augustus v6.2 Market API selectors
+    OneInchSwapper_v1.sol          Fixed-router (1inch v6) adapter on SwapExecutorBase
+    OneInchV6Selectors.sol         Allowed 1inch v6 Swap API selectors
+  SwapExecutorBase.sol              Shared envelope: SameToken, exact-pull, ZeroAmountOut,
+                                    authoritative minAmountOut, refund unspent
+  executors/CurveExchangeLib.sol    StableSwap vs crypto Curve exchange encoding
 ```
 
 Tests mirror the source layout under `test/swap/` and use the `@harbor-swap-test/` remap.
-Cross-cutting mocks (`MockSwapper`, `MockUniV3Router`, `MockAggregationRouterV6`) stay in `test/mocks/`.
+Cross-cutting mocks (`MockSwapper`, `MockUniV3Router`, `MockAugustusV62`, `MockAggregationRouterV6`) stay in `test/mocks/`.
+Pinned mainnet fork tests live under `test/swap/fork/`.
 
 ## Two-mode design
 
@@ -46,6 +53,7 @@ Harbor swap supports two distinct execution paths, chosen per call site by the c
 `HarborYield_v1.distribute()` and other latency- or peg-critical flows do:
 
 1. One batched `ISwapper.getRoutesFrom(from, targets)` view call.
+   Use `routeCostRatio` at execute (minting threshold / cost). Live prices stay off-chain.
 2. For each target with `available == true`, call `ISwapExecutor(swapExecutor).swap(from, to,
    amountIn, minAmountOut)` **directly** — no per-tx calldata.
 
@@ -70,22 +78,22 @@ Properties:
 
 ### 2. Aggregator (low-urgency)
 
-For long-tail routes, multi-hop graphs, and slow rebalances `aggregator/OneInchSwapper_v1`
-accepts opaque `bytes` calldata built off-chain by a keeper. It is reached **only** as the swap edge of
+For long-tail routes, multi-hop graphs, and slow rebalances the aggregator adapters
+(`VeloraSwapper_v1`, `OneInchSwapper_v1`) accept opaque `bytes` calldata built off-chain by a keeper. It is reached **only** as the swap edge of
 `HarborYield_v1.redistribute` — the keeper passes the adapter address and its `routerData` as call
 parameters — and is never invoked from the `distribute()` loop, so untrusted calldata never enters
 peg-critical code paths.
 
 Flow:
 
-1. Keeper builds router calldata off-chain (1inch API / pathfinder) and calls `redistribute`, naming the
+1. Keeper builds router calldata off-chain (Velora Market API) and calls `redistribute`, naming the
    adapter address and supplying `routerData`.
 2. HY unwinds `shares` of the source vault down to the `fromToken`, approves the named adapter for exactly
    that amount, and forwards the swap.
-3. `OneInchSwapper_v1` pulls the input, approves its immutable router (1inch v6), invokes
+3. `VeloraSwapper_v1` pulls the input, approves its immutable router (Augustus v6.2), invokes
    `router.call(routerData)`, resets the router allowance to zero, then verifies output
    via `balanceOf(toToken)` delta against `minAmountOut`.
-4. Any unspent `fromToken` (1inch `_PARTIAL_FILL` flag) is refunded to HY, which re-winds it into the source
+4. Any unspent `fromToken` is refunded to HY, which re-winds it into the source
    vault; the swapped proceeds are wound into the target vault, bounded by HY's end-to-end value floor.
 
 Properties:
@@ -93,9 +101,14 @@ Properties:
 - Arbitrary routes without deploying a new executor per pool.
 - Immutable router address (no caller-supplied target).
 - **Calldata allowlist (Option A):** `routerData` must be at least 4 bytes and start with
-  [`OneInchV6Selectors.SWAP`](aggregator/OneInchV6Selectors.sol) (`0x07ed2379` —
-  `swap(address,tuple,bytes)` on Aggregation Router V6). Keepers must use 1inch Swap API /
-  Pathfinder output; `unoswap`, `clipperSwap`, and `fillOrder` selectors are rejected.
+  [`VeloraV62Selectors.SWAP_EXACT_AMOUNT_IN`](aggregator/VeloraV62Selectors.sol) (`0xe3ead59e`) or
+  [`VeloraV62Selectors.SWAP_EXACT_AMOUNT_OUT`](aggregator/VeloraV62Selectors.sol) (`0x7f457675`).
+  Keepers must pin Market API quotes with `version=6.2` and
+  `includeContractMethods=swapExactAmountIn,swapExactAmountOut` on `GET /prices` (default
+  `version` is legacy `5`), then `POST /transactions/:chainId` with `userAddress` = adapter
+  proxy and `txOrigin` = redistributor EOA (direct) or Safe address (not a Safe relayer).
+  Direct-pool entrypoints
+  (`swapExactAmountInOnUniswapV2`, RFQ fills, etc.) are rejected.
 - Two-stage approve / call / zero approval flow at both HY and adapter layers.
 - Slippage enforced twice: by the router's own minReturn inside the calldata and by the
   adapter's post-call balance-delta check against `minAmountOut`.
@@ -112,7 +125,7 @@ When a collateral AutoCompounder calls `HarborYield_v1.distribute()` with fxSAVE
    registered in `Swapper_v1` (production ETH: `FxSaveWstEthSwapper_v1`) and deposited into
    the wstETH equivalent vault.
 
-`distribute()` **never** calls the 1inch aggregator. Keepers reach it only through `redistribute` for
+`distribute()` **never** calls the Velora aggregator. Keepers reach it only through `redistribute` for
 discretionary rebalances or routes not registered in `Swapper_v1`, naming the adapter and supplying its
 `routerData` per call.
 
@@ -122,22 +135,22 @@ Route changes emit events for indexers and deploy verification:
 
 | Contract | Event | When |
 |----------|-------|------|
-| `Swapper_v1` | `RouteUpdated(from, to, executor, feeRatio)` | `setRoute` (executor `address(0)` = cleared) |
+| `Swapper_v1` | `RouteUpdated(from, to, executor, routeCostRatio)` | `setRoute` (executor `address(0)` = cleared) |
 | `UniV3Swapper_v1` | `PathSet(from, to, path)` | `setPath` |
 | `CurveSwapper_v1` | `RouteSet(...)` | `setRoute` |
 | `BalancerSwapper_v1` | `RouteSet(...)` | `setRoute` |
-| `OneInchSwapper_v1` | `AggregatorSwap(...)` | each `swap` |
+| `VeloraSwapper_v1` / `OneInchSwapper_v1` | `AggregatorSwap(...)` | each `swap` |
 | `FxSaveWstEthSwapper_v1` | `FxSaveWstEthSwap(...)` | each `swap` |
 
-Off-chain tooling can also call `ISwapper.getRoute(from, to)` for a single pair without
-building a one-element `targets` array.
+Off-chain tooling can also call `ISwapper.getRoute(from, to)` for a single pair
+without building a one-element `targets` array.
 
 ## Public interface contract
 
 External code should depend on the **interfaces only**:
 
-- [`ISwapper`](interfaces/ISwapper.sol) — read side. `getRoutesFrom` (batch) and `getRoute`
-  (single pair).
+- [`ISwapper`](interfaces/ISwapper.sol) — read side. `getRoutesFrom` / `getRoute` return
+  `RouteInfo` with availability, `routeCostRatio`, and `swapExecutor`.
 - [`ISwapperConfig`](interfaces/ISwapperConfig.sol) — admin side. Per-pair `setRoute` and
   `RouteUpdated` event.
 - [`ISwapExecutor`](interfaces/ISwapExecutor.sol) — execution side. Stable four-argument
@@ -182,18 +195,26 @@ Executors (`UniV3Swapper_v1`, `CurveSwapper_v1`, `BalancerSwapper_v1`, `FxSaveWs
   Balancer `limit`) and by a post-call `balanceOf` delta check. Curve's path uses balance
   delta as the primary slippage signal since some legacy pools return void.
 
-Aggregator (`OneInchSwapper_v1`):
+Aggregator (`VeloraSwapper_v1`, primary):
 
-- Immutable router (1inch AggregationRouterV6 on production; constructor arg overridable
+- Immutable router (Velora Augustus v6.2 on production; constructor arg overridable
   for tests / future routers). Caller supplies opaque calldata; recipient and amounts are
   encoded in that calldata. The adapter enforces **selector allowlist** (Option A: only
-  `OneInchV6Selectors.SWAP`), slippage by balance delta, and resets the router allowance to
-  zero. It does **not** decode swap parameters inside allowed calldata — the call site
-  (`HarborYield_v1.redistribute`, gated by `REDISTRIBUTOR_ROLE`) provides vetted keeper-built routes.
+  `VeloraV62Selectors.SWAP_EXACT_AMOUNT_IN` and `SWAP_EXACT_AMOUNT_OUT`). Slippage,
+  same-token rejection, exact-pull, `ZeroAmountOut`, and partial-fill refunds live in
+  `SwapExecutorBase` — the selector check is defence-in-depth. It does **not** decode swap
+  parameters inside allowed calldata — the call site (`HarborYield_v1.redistribute`, gated
+  by `REDISTRIBUTOR_ROLE`) provides vetted keeper-built routes.
 - Unspent `fromToken` after a partial fill is refunded to `msg.sender` (HY), so no input
   can accrue inside the adapter between calls.
 - The adapter is open-access (no role gate on `swap`) because it operates purely on
   `msg.sender`'s pre-approved balance; the authorization seam lives in the consumer.
+
+Aggregator (`OneInchSwapper_v1`, optional alternative):
+
+- Same `SwapExecutorBase` pattern as Velora with a single allowlisted selector
+  (`OneInchV6Selectors.SWAP`). Requires 1inch dev-portal KYC for off-chain calldata. Use
+  only when Velora routing is unavailable.
 
 ## Consumer integration
 
@@ -213,9 +234,8 @@ Deploy helpers:
 - `deployBalancerSwapper(state)` — deploys `BalancerSwapper_v1` with the canonical
   Balancer V2 Vault constant from [`ConfigBalancer`](../../script/src/config/ConfigBalancer.sol).
   An overload accepting an explicit Vault address is used by unit tests.
-- `deployOneInchSwapper(state)` — deploys `OneInchSwapper_v1` with the canonical 1inch v6
-  router constant from [`ConfigOneInch`](../../script/src/config/ConfigOneInch.sol). An
-  overload accepting an explicit router address is used by unit tests.
+- `deployVeloraSwapper(state)` — primary Augustus v6.2 adapter ([`ConfigVelora`](../../script/src/config/ConfigVelora.sol))
+- `deployOneInchSwapper(state)` — optional 1inch v6 adapter ([`ConfigOneInch`](../../script/src/config/ConfigOneInch.sol))
 - `deployFxSaveWstEthSwapper(state)` — deploys `FxSaveWstEthSwapper_v1` with the mainnet
   fxSAVE ↔ wstETH routes compiled into the implementation
   ([`ConfigFxSaveWstEthRoute_ETH_mainnet`](config/ConfigFxSaveWstEthRoute_ETH_mainnet.sol)).
@@ -232,13 +252,11 @@ wiring per pair:
    - `CurveSwapper_v1.setRoute(from, to, pool, i, j, useUnderlying)`
    - `BalancerSwapper_v1.setRoute(from, to, poolId)`
 2. Register the executor in the registry via
-   `ISwapperConfig.setRoute(from, to, executorProxy, feeRatio)` so `Swapper_v1` knows
+   `ISwapperConfig.setRoute(from, to, executorProxy, routeCostRatio)` so `Swapper_v1` knows
    which executor to dispatch to for that pair.
 
-Aggregator wiring bypasses the registry and is not stored on HY: call `deployOneInchSwapper(state)` to deploy
-the adapter at its predicted CREATE3 address, then `grantRoles(keeper, HarborYield_v1.REDISTRIBUTOR_ROLE())`
-for each keeper allowed to call `redistribute`. The keeper names the adapter address per call — there is no
-`setAggregatorSwapper` and no stored aggregator on HY.
+Aggregator wiring bypasses the registry: deploy `veloraSwapper` (primary) and optionally `oneInchSwapper`, then grant
+`REDISTRIBUTOR_ROLE` for keepers. The keeper names which adapter address to pass per `redistribute` call.
 
 **Deploy runbook:** step-by-step wiring, mainnet pool caveats, role grants, and verification
 checklist live in [`script/DEPLOY_SWAP.md`](../../script/DEPLOY_SWAP.md).
@@ -249,12 +267,13 @@ This package lives in [baofinance/harbor-swap](https://github.com/baofinance/har
 Harbor Yield and other consumers import it via submodule or dependency and use the
 `@harbor-swap/` remapping defined in [`foundry.toml`](../../foundry.toml).
 
-**Test scope:** mock-based unit tests under `test/swap/` (71 tests). Mainnet fork
-integration (full ETH stack + oracle mocks) lives in the Harbor Yield consumer repo, not here.
+**Test scope:** mock-based unit tests under `test/swap/` plus pinned mainnet fork tests under
+`test/swap/fork/` (require `MAINNET_RPC_URL`). All executors share `SwapExecutorBase`
+(`ZeroAmountOut` is always fatal even at `minAmountOut == 0`).
 
 **Intentional design tradeoffs** (see threat model above):
 
 - `FxSaveWstEthSwapper_v1` intermediate Curve legs use `min_dy = 0`; only final wstETH
   output is bounded by the consumer's `minAmountOut`.
-- `OneInchSwapper_v1` is open-access; authorization lives on the consumer's `redistribute`
+- Aggregator adapters are open-access; authorization lives on the consumer's `redistribute`
   `REDISTRIBUTOR_ROLE` gate.

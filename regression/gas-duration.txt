@@ -5,6 +5,7 @@ suite CPU (milliseconds)
 |--------------------------------------------------------------------------|----------------|-------|
 | test/swap/Swapper.t.sol:SwapperTest                                      |              1 | 0.00s |
 | test/swap/aggregator/OneInchSwapper.t.sol:OneInchSwapperTest             |             15 | 0.01s |
+| test/swap/aggregator/VeloraSwapper.t.sol:VeloraSwapperTest               |              4 | 0.00s |
 | test/swap/executors/BalancerSwapper.t.sol:BalancerSwapperTest            |              7 | 0.01s |
 | test/swap/executors/CurveSwapper.t.sol:CurveSwapperTest                  |             16 | 0.02s |
 | test/swap/executors/FxSaveWstEthSwapper.t.sol:FxSaveWstEthSwapperTest    |             18 | 0.02s |
@@ -13,3 +14,4 @@ suite CPU (milliseconds)
 | test/swap/fork/CurveSwapperFork.t.sol:CurveSwapperForkTest               |             59 | 0.06s |
 | test/swap/fork/FxSaveWstEthSwapperFork.t.sol:FxSaveWstEthSwapperForkTest |             11 | 0.01s |
 | test/swap/fork/UniV3SwapperFork.t.sol:UniV3SwapperForkTest               |              3 | 0.00s |
+| test/swap/fork/VeloraSwapperFork.t.sol:VeloraSwapperForkTest             |            206 | 0.21s |

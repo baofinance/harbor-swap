@@ -8,14 +8,14 @@ import {HarborSwapDeployStack} from "@harbor-swap-script/HarborSwapDeployStack.s
 import {ConfigSwap_ETH_mainnet} from "@harbor-swap-script/config/ConfigSwap_ETH_mainnet.sol";
 import {ISwapperConfig} from "@harbor-swap/interfaces/ISwapperConfig.sol";
 
-/// @notice Abstract deploy class for the full Harbor swap stack (registry + all executors + 1inch).
+/// @notice Abstract deploy class for the full Harbor swap stack (registry + all executors + aggregators).
 /// @dev Lean concrete scripts inherit this and add `is Script` for forge broadcast context.
 abstract contract Deploy_Swap is HarborSwapDeployStack, ConfigSwap_ETH_mainnet {
     function _uniV3RouterAddress() internal pure override returns (address) {
         return UNIV3_ROUTER_MAINNET;
     }
 
-    /// @notice Deploy registry + UniV3 + Curve + Balancer + 1inch via BaoFactory CREATE3.
+    /// @notice Deploy registry + UniV3 + Curve + Balancer + Velora + 1inch via BaoFactory CREATE3.
     ///         Transfers proxy ownership to the Harbor multisig and persists deployment state.
     function deploySwapInfrastructure(string memory saltPrefix, string memory network) internal {
         _setSaltPrefix(saltPrefix);
@@ -50,7 +50,7 @@ abstract contract Deploy_Swap is HarborSwapDeployStack, ConfigSwap_ETH_mainnet {
         console.log("  Swapper:           %s", swapper);
         console.log("  FxSaveWstEth exec: %s", fxSaveWstEth);
 
-        ISwapperConfig(swapper).setRoute(FXSAVE, WSTETH, fxSaveWstEth, FXSAVE_TO_WSTETH_FEE_RATIO);
-        ISwapperConfig(swapper).setRoute(WSTETH, FXSAVE, fxSaveWstEth, WSTETH_TO_FXSAVE_FEE_RATIO);
+        ISwapperConfig(swapper).setRoute(FXSAVE, WSTETH, fxSaveWstEth, FXSAVE_TO_WSTETH_ROUTE_COST_RATIO);
+        ISwapperConfig(swapper).setRoute(WSTETH, FXSAVE, fxSaveWstEth, WSTETH_TO_FXSAVE_ROUTE_COST_RATIO);
     }
 }

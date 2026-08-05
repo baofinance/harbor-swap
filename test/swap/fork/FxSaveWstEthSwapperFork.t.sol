@@ -174,15 +174,14 @@ contract FxSaveWstEthSwapperForkTest is ForkTestBase, Swapper {
         uint256 expected = _quoteForward(amountIn);
 
         IERC20(Cfg.FXSAVE).approve(swapperProxy, amountIn);
-        // The floor is a RATE — output per 1e18 of input — so the quote is converted before being
-        // pushed 1% above what the pools will actually pay.
-        uint256 rateTooHigh = (((expected * 1 ether) / amountIn) * 101) / 100;
+        // The floor is a total in wstETH, pushed 1% above what the pools will actually pay.
+        uint256 minTooHigh = (expected * 101) / 100;
         vm.expectRevert(
             abi.encodeWithSelector(
                 CurveExchangeLib.PoolCallFailed.selector,
                 abi.encodeWithSignature("Error(string)", "Slippage")
             )
         );
-        ISwapExecutor(swapperProxy).swap(Cfg.FXSAVE, Cfg.WSTETH, amountIn, rateTooHigh);
+        ISwapExecutor(swapperProxy).swap(Cfg.FXSAVE, Cfg.WSTETH, amountIn, minTooHigh);
     }
 }

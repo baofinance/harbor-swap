@@ -9,21 +9,25 @@ import {Swapper_v1} from "@harbor-swap/Swapper_v1.sol";
 import {UniV3Swapper_v1} from "@harbor-swap/executors/UniV3Swapper_v1.sol";
 import {CurveSwapper_v1} from "@harbor-swap/executors/CurveSwapper_v1.sol";
 import {BalancerSwapper_v1} from "@harbor-swap/executors/BalancerSwapper_v1.sol";
+import {VeloraSwapper_v1} from "@harbor-swap/aggregator/VeloraSwapper_v1.sol";
 import {OneInchSwapper_v1} from "@harbor-swap/aggregator/OneInchSwapper_v1.sol";
 import {FxSaveWstEthSwapper_v1} from "@harbor-swap/executors/FxSaveWstEthSwapper_v1.sol";
 
+import {ConfigVelora} from "@harbor-swap-script/config/ConfigVelora.sol";
 import {ConfigOneInch} from "@harbor-swap-script/config/ConfigOneInch.sol";
 import {ConfigBalancer} from "@harbor-swap-script/config/ConfigBalancer.sol";
 
 /// @notice Harbor Swapper deployment logic.
-/// @dev Swapper_v1 is a pure route registry shared across all HY peg instances. Direct
+/// @dev Swapper_v1 is a pure route registry shared across all HarborYield peg instances. Direct
 ///      executors (UniV3, Curve, Balancer) implement ISwapExecutor and are registered in
-///      Swapper_v1 via setRoute(). The aggregator adapter (OneInchSwapper_v1) lives
-///      alongside the registry and is consumed directly by HarborYield_v1 via its
-///      role-gated executeAggregatorSwap entrypoint (not through the Swapper_v1 registry).
+///      Swapper_v1 via setRoute(). Aggregator adapters (`VeloraSwapper_v1` primary, `OneInchSwapper_v1` optional) live
+///      alongside the registry and are consumed directly by HarborYield_v1 via its role-gated
+///      `redistribute` entrypoint (not through the Swapper_v1 registry). The keeper names which
+///      adapter to use per call.
 ///      Salts: {saltPrefix}::swapper / {saltPrefix}::uniV3Swapper /
 ///      {saltPrefix}::curveSwapper / {saltPrefix}::balancerSwapper /
-///      {saltPrefix}::oneInchSwapper / {saltPrefix}::fxSaveWstEthSwapper (all shared, not peg-specific).
+///      {saltPrefix}::veloraSwapper / {saltPrefix}::oneInchSwapper /
+///      {saltPrefix}::fxSaveWstEthSwapper (all shared, not peg-specific).
 ///
 ///      Deployment pattern:
 ///        deploySwapper(state)               — registry
@@ -32,12 +36,13 @@ import {ConfigBalancer} from "@harbor-swap-script/config/ConfigBalancer.sol";
 ///        deployCurveSwapper(state)     — Curve executor (no canonical router; pool
 ///                                        addresses come from per-pair setRoute config)
 ///        deployBalancerSwapper(state)  — Balancer V2 executor (uses ConfigBalancer.VAULT)
-///        deployOneInchSwapper(state)   — 1inch v6 aggregator adapter (uses ConfigOneInch)
+///        deployVeloraSwapper(state)   — Velora Augustus v6.2 aggregator adapter (uses ConfigVelora)
+///        deployOneInchSwapper(state)  — 1inch v6 aggregator adapter (uses ConfigOneInch)
 ///
 ///      Override _uniV3RouterAddress() in concrete deploy scripts and fork test setup
 ///      to supply the network-specific router. Unit tests that construct an ad-hoc mock
 ///      router/vault use the explicit-address overload: deployXxxSwapper(state, mockAddr).
-abstract contract Swapper is Deployer, ConfigOneInch, ConfigBalancer {
+abstract contract Swapper is Deployer, ConfigVelora, ConfigOneInch, ConfigBalancer {
     // this is duplicated from HarborDeployer
     address private constant TREASURY_OWNER = 0x9bABfC1A1952a6ed2caC1922BFfE80c0506364a2;
 
@@ -191,6 +196,50 @@ abstract contract Swapper is Deployer, ConfigOneInch, ConfigBalancer {
         proxy = _deployProxyAndRecord(stateData, "balancerSwapper", impl, initData);
     }
 
+    // ─── VeloraSwapper_v1 (Velora Augustus v6.2 aggregator adapter) ─────────
+
+    /// @notice Deploy VeloraSwapper_v1 implementation only.
+    ///         Virtual so tests can inject an alternative aggregator implementation.
+    function deployVeloraSwapperImplementation(address veloraRouter) internal virtual returns (address impl) {
+        impl = address(new VeloraSwapper_v1(veloraRouter));
+    }
+
+    /// @notice Deploy VeloraSwapper using the canonical Augustus v6.2 router address from
+    ///         ConfigVelora. This is the production path on every supported chain.
+    function deployVeloraSwapper(DeploymentTypes.State memory stateData) internal returns (address proxy) {
+        return _deployVeloraSwapperWith(stateData, VELORA_AUGUSTUS_V62);
+    }
+
+    /// @notice Deploy VeloraSwapper with an explicit router address. Used by unit tests
+    ///         that wire a MockAugustusV62.
+    function deployVeloraSwapper(
+        DeploymentTypes.State memory stateData,
+        address veloraRouter
+    ) internal returns (address proxy) {
+        return _deployVeloraSwapperWith(stateData, veloraRouter);
+    }
+
+    function _deployVeloraSwapperWith(
+        DeploymentTypes.State memory stateData,
+        address veloraRouter
+    ) private returns (address proxy) {
+        console.log("    > veloraSwapper");
+
+        address impl = deployVeloraSwapperImplementation(veloraRouter);
+        console.log("        Impl: %s", impl);
+
+        _recordImplementation(
+            stateData,
+            "veloraSwapper",
+            "@harbor-swap/aggregator/VeloraSwapper_v1.sol",
+            "VeloraSwapper_v1",
+            impl
+        );
+
+        bytes memory initData = abi.encodeCall(VeloraSwapper_v1.initialize, (address(this), owner()));
+        proxy = _deployProxyAndRecord(stateData, "veloraSwapper", impl, initData);
+    }
+
     // ─── OneInchSwapper_v1 (1inch v6 aggregator adapter) ───────────────────
 
     /// @notice Deploy OneInchSwapper_v1 implementation only.
@@ -206,8 +255,7 @@ abstract contract Swapper is Deployer, ConfigOneInch, ConfigBalancer {
     }
 
     /// @notice Deploy OneInchSwapper with an explicit router address. Used by unit tests
-    ///         that wire a MockAggregationRouterV6 (or future per-chain overrides if 1inch ever
-    ///         publishes a different address).
+    ///         that wire a MockAggregationRouterV6.
     function deployOneInchSwapper(
         DeploymentTypes.State memory stateData,
         address oneInchRouter

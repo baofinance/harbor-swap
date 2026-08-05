@@ -37,9 +37,9 @@
     "lint": "./lib/bao-base/run lint-sol",
     "lint:test": "./lib/bao-base/run lint-sol --test",
     "lint:bash": "./lib/bao-base/run lint-bash --lint script",
+    "measure:route-cost": "./script/measure-route-cost.sh",
     "regression": "yarn sizes; yarn gas; yarn coverage",
-    "mermaid": "mmdc",
-    "verify:stabilitypool": "./scripts/check-stabilitypool.sh"
+    "mermaid": "mmdc"
   },
   "prettier": "./lib/bao-base/prettier.config.js",
   "dependencies": {

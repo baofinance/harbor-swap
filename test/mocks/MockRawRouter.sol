@@ -5,7 +5,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 import {MockERC20} from "@bao-test/mocks/MockERC20.sol";
 
-/// @notice Mock raw-calldata router for Swapper_v1 1inch-path tests.
+/// @notice Mock raw-calldata router for aggregator-path tests.
 ///         The Swapper calls this via low-level call(data) where data encodes `swap(...)`.
 ///         Pulls fromToken from msg.sender (via pre-approval) and mints toToken to msg.sender.
 ///         Rate, revert behaviour, and reentrancy target are configurable.

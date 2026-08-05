@@ -4,13 +4,13 @@ src/swap/Swapper_v1.sol:Swapper_v1
 | function name     |   max |   display |
 |-------------------|-------|-----------|
 | ROUTE_SETTER_ROLE |   239 | 2.390e+02 |
-| getRoute          |  5532 | 5.532e+03 |
-| getRoutesFrom     | 10260 | 1.026e+04 |
+| getRoute          |  5896 | 5.896e+03 |
+| getRoutesFrom     | 10151 | 1.015e+04 |
 | grantRoles        | 26330 | 2.633e+04 |
 | initialize        | 70340 | 7.034e+04 |
+| routeCostRatios   |  2788 | 2.788e+03 |
 | setRoute          | 51746 | 5.175e+04 |
-| swapExecutors     |  2806 | 2.806e+03 |
-| swapFeeRatios     |  2767 | 2.767e+03 |
+| swapExecutors     |  2784 | 2.784e+03 |
 
 src/swap/aggregator/OneInchSwapper_v1.sol:OneInchSwapper_v1
 | function name    |    max |   display |
@@ -18,7 +18,17 @@ src/swap/aggregator/OneInchSwapper_v1.sol:OneInchSwapper_v1
 | ROUTER           |    282 | 2.820e+02 |
 | initialize       |  70270 | 7.027e+04 |
 | proxiableUUID    |    363 | 3.630e+02 |
-| swap             | 211167 | 2.112e+05 |
+| swap             | 210551 | 2.106e+05 |
+| sweep            |  37825 | 3.782e+04 |
+| upgradeToAndCall |   5556 | 5.556e+03 |
+
+src/swap/aggregator/VeloraSwapper_v1.sol:VeloraSwapper_v1
+| function name    |    max |   display |
+|------------------|--------|-----------|
+| ROUTER           |    282 | 2.820e+02 |
+| initialize       |  70340 | 7.034e+04 |
+| proxiableUUID    |    363 | 3.630e+02 |
+| swap             | 210969 | 2.110e+05 |
 | sweep            |  37825 | 3.782e+04 |
 | upgradeToAndCall |   5556 | 5.556e+03 |
 
@@ -32,7 +42,7 @@ src/swap/executors/BalancerSwapper_v1.sol:BalancerSwapper_v1
 | poolIds           |   2811 | 2.811e+03 |
 | proxiableUUID     |    341 | 3.410e+02 |
 | setRoute          |  28929 | 2.893e+04 |
-| swap              | 258400 | 2.584e+05 |
+| swap              | 257782 | 2.578e+05 |
 | sweep             |  37803 | 3.780e+04 |
 | upgradeToAndCall  |   5557 | 5.557e+03 |
 
@@ -45,7 +55,7 @@ src/swap/executors/CurveSwapper_v1.sol:CurveSwapper_v1
 | proxiableUUID     |    363 | 3.630e+02 |
 | routes            |   7644 | 7.644e+03 |
 | setRoute          |  76155 | 7.616e+04 |
-| swap              | 271589 | 2.716e+05 |
+| swap              | 270971 | 2.710e+05 |
 | sweep             |  37803 | 3.780e+04 |
 | upgradeToAndCall  |   5534 | 5.534e+03 |
 
@@ -53,7 +63,7 @@ src/swap/executors/FxSaveWstEthSwapper_v1.sol:FxSaveWstEthSwapper_v1
 | function name   |    max |   display |
 |-----------------|--------|-----------|
 | initialize      |  70318 | 7.032e+04 |
-| swap            | 585676 | 5.857e+05 |
+| swap            | 585058 | 5.851e+05 |
 
 src/swap/executors/UniV3Swapper_v1.sol:UniV3Swapper_v1
 | function name    |    max |   display |
@@ -64,7 +74,7 @@ src/swap/executors/UniV3Swapper_v1.sol:UniV3Swapper_v1
 | paths            |   9986 | 9.986e+03 |
 | proxiableUUID    |    342 | 3.420e+02 |
 | setPath          |  95014 | 9.501e+04 |
-| swap             | 206496 | 2.065e+05 |
+| swap             | 205878 | 2.059e+05 |
 | sweep            |  37826 | 3.783e+04 |
 | upgradeToAndCall |   5579 | 5.579e+03 |
 
@@ -77,6 +87,17 @@ test/mocks/MockAggregationRouterV6.sol:MockAggregationRouterV6
 | setReentrantCall    | 417833 | 4.178e+05 |
 | setShouldRevert     |  43658 | 4.366e+04 |
 | swapSelector        |    204 | 2.040e+02 |
+
+test/mocks/MockAugustusV62.sol:MockAugustusV62
+| function name              |    max |   display |
+|----------------------------|--------|-----------|
+| rate                       |   2306 | 2.306e+03 |
+| setPartialFillRatio        |  26541 | 2.654e+04 |
+| setRate                    |  26555 | 2.656e+04 |
+| setReentrantCall           | 357603 | 3.576e+05 |
+| setShouldRevert            |  43681 | 4.368e+04 |
+| swapExactAmountInSelector  |    273 | 2.730e+02 |
+| swapExactAmountOutSelector |    240 | 2.400e+02 |
 
 test/mocks/MockBalancerVault.sol:MockBalancerVault
 | function name    |    max |   display |

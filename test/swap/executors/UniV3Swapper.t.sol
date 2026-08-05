@@ -183,10 +183,10 @@ contract UniV3SwapperTest is BaoTest, TokenHolderTestBase, SwapExecutorTestBase,
         _mintAndApprove(fromToken, uniV3SwapperProxy, amountIn);
         // Hoisted: an argument sub-expression making an external call would steal the
         // expectRevert binding.
-        uint256 rateTooHigh = _expectedRatePerUnitIn() + 1;
+        uint256 minTooHigh = _expectedOut(amountIn) + 1;
 
         vm.expectRevert(bytes("Too little received"));
-        ISwapExecutor(uniV3SwapperProxy).swap(fromToken, toToken, amountIn, rateTooHigh);
+        ISwapExecutor(uniV3SwapperProxy).swap(fromToken, toToken, amountIn, minTooHigh);
     }
 
     /// @notice A forced router revert bubbles unwrapped (typed call — no wrapper error).
