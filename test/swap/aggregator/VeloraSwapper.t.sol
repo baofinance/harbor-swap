@@ -357,9 +357,9 @@ contract VeloraSwapperTest is BaoTest, TokenHolderTestBase, SwapExecutorTestBase
     }
 
     /// @notice A partial fill at an HONEST rate is accepted. The floor binds the rate, so a venue that
-    ///         spends 60% of the order and pays 60% of the proceeds has not slipped at all — an
-    ///         absolute floor sized for the whole order would have rejected it, because the output
-    ///         shrinks with the fill while such a floor does not.
+    ///         spends 60% of the order and pays 60% of the proceeds has not slipped at all. An
+    ///         absolute floor left unscaled would have rejected it, because the output shrinks with
+    ///         the fill and the floor would not.
     function test_swap_partialFill_atHonestRate_meetsTheFloor() public {
         MockAugustusV62(router).setPartialFillRatio(0.6e18);
         uint256 amountIn = AMOUNT_IN;
@@ -370,7 +370,7 @@ contract VeloraSwapperTest is BaoTest, TokenHolderTestBase, SwapExecutorTestBase
             fromToken,
             toToken,
             amountIn,
-            _expectedRatePerUnitIn(),
+            _expectedOut(amountIn),
             _routerData(amountIn)
         );
 
@@ -378,9 +378,10 @@ contract VeloraSwapperTest is BaoTest, TokenHolderTestBase, SwapExecutorTestBase
         assertEq(IERC20(fromToken).balanceOf(address(this)), amountIn - spent, "unspent portion refunded");
     }
 
-    /// @notice A partial fill at a WORSE rate than demanded still reverts. This is the case a floor
-    ///         scaled down by the fill would wave through — it shrinks exactly as fast as the output it
-    ///         is meant to bound, so a sliver filled at any price would satisfy it.
+    /// @notice A partial fill at a WORSE rate than demanded still reverts. Pro-rating by the input
+    ///         SPENT is what makes this hold: a floor scaled by the OUTPUT instead would shrink
+    ///         exactly as fast as the output it is meant to bound, so a sliver filled at any price
+    ///         would satisfy it.
     function test_swap_partialFill_atPoorRate_reverts() public {
         MockAugustusV62(router).setPartialFillRatio(0.6e18);
         uint256 amountIn = AMOUNT_IN;
@@ -388,14 +389,14 @@ contract VeloraSwapperTest is BaoTest, TokenHolderTestBase, SwapExecutorTestBase
         _mintAndApprove(fromToken, veloraProxy, amountIn);
         // Hoisted: each of these makes an external call, and an argument sub-expression would steal
         // the expectRevert binding.
-        uint256 demandedRate = _expectedRatePerUnitIn() + 1; // a wei per unit better than the venue pays
-        uint256 required = _requiredOut(spent, demandedRate);
+        uint256 demanded = _expectedOut(amountIn) + 2; // more than the venue pays for the whole order
+        uint256 required = _requiredOut(demanded, spent, amountIn);
         uint256 delivered = _expectedOut(spent);
         bytes memory routerData = _routerData(amountIn);
         assertLt(delivered, required, "sanity: the venue's rate is below the one demanded");
 
         vm.expectRevert(abi.encodeWithSelector(SwapExecutorBase.InsufficientAmountOut.selector, delivered, required));
-        IAggregatorSwapper(veloraProxy).swap(fromToken, toToken, amountIn, demandedRate, routerData);
+        IAggregatorSwapper(veloraProxy).swap(fromToken, toToken, amountIn, demanded, routerData);
     }
 
     /// @notice On the exact-out entrypoint the router spends only what the requested output costs and
@@ -438,21 +439,21 @@ contract VeloraSwapperTest is BaoTest, TokenHolderTestBase, SwapExecutorTestBase
         uint256 amountIn = AMOUNT_IN;
         uint256 spend = (amountIn * 0.6e18) / 1e18;
         uint256 targetOut = _expectedOut(spend);
-        uint256 demandedRate = _expectedRatePerUnitIn(); // the fair rate, captured before the move
+        uint256 demanded = _expectedOut(amountIn); // the whole order at the fair price, before the move
         _mintAndApprove(fromToken, veloraProxy, amountIn);
 
         // The venue's price drops 20%, so the same output now costs 25% more input — still under the
         // caller's ceiling, so it is the envelope's floor that must catch this, not the router's own
         // maximum-input bound.
-        _setVenueRate((demandedRate * 80) / 100);
+        _setVenueRate((MockAugustusV62(router).rate() * 80) / 100);
         uint256 poorSpend = (spend * 100) / 80;
-        uint256 required = _requiredOut(poorSpend, demandedRate);
+        uint256 required = _requiredOut(demanded, poorSpend, amountIn);
         bytes memory routerData = _routerDataExactOut(fromToken, toToken, amountIn, targetOut);
         assertLt(poorSpend, amountIn, "sanity: the spend stays under the caller's ceiling");
         assertLt(targetOut, required, "sanity: the unchanged output no longer covers the floor");
 
         vm.expectRevert(abi.encodeWithSelector(SwapExecutorBase.InsufficientAmountOut.selector, targetOut, required));
-        IAggregatorSwapper(veloraProxy).swap(fromToken, toToken, amountIn, demandedRate, routerData);
+        IAggregatorSwapper(veloraProxy).swap(fromToken, toToken, amountIn, demanded, routerData);
     }
 
     /// @notice The constructor rejects a router address with no code.

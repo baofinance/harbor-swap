@@ -11,18 +11,19 @@ interface ISwapExecutor {
     /// @param fromToken Token to swap from.
     /// @param toToken Token to swap to.
     /// @param amountIn Amount of fromToken to swap, at most.
-    /// @param minAmountOutPerUnitIn Minimum acceptable RATE: `toToken` units per 1e18 units of
-    ///        `fromToken` SPENT; reverts if not met. A rate rather than a total because unspent input is
-    ///        refunded: an absolute floor would reject a partial fill that charged nothing at all, while
-    ///        scaling that floor down by the fill would let a sliver filled at any price through. Only
-    ///        the rate distinguishes a small honest fill from a bad one. Token decimals are the caller's
-    ///        to fold in — the rate is quoted per 1e18 of input whatever `fromToken`'s decimals are.
+    /// @param minAmountOut Minimum acceptable output for the WHOLE order, in `toToken` units; reverts
+    ///        if not met. Because unspent input is refunded, the floor is PRO-RATED by the fraction of
+    ///        `amountIn` actually spent, so a partial fill must meet the same price rather than the
+    ///        same total. Left unscaled it would reject an honest partial fill that charged nothing at
+    ///        all; scaled by the OUTPUT it would shrink as fast as the thing it bounds and admit a
+    ///        sliver at any price. Stated as a total, decimals are the caller's own and need no
+    ///        conversion here.
     ///        0 disables the floor (a caller enforcing its own end-to-end bound).
     /// @return amountOut Actual amount of toToken delivered to msg.sender.
     function swap(
         address fromToken,
         address toToken,
         uint256 amountIn,
-        uint256 minAmountOutPerUnitIn
+        uint256 minAmountOut
     ) external returns (uint256 amountOut);
 }

@@ -64,12 +64,12 @@ contract OneInchSwapper_v1 is// solhint-disable-line contract-name-capwords
         address fromToken,
         address toToken,
         uint256 amountIn,
-        uint256 minAmountOutPerUnitIn,
+        uint256 minAmountOut,
         bytes calldata routerData
     ) external override nonReentrant returns (uint256 amountOut) {
         _validateRouterData(routerData);
         uint256 refundedIn;
-        (amountOut, refundedIn) = _swapEnvelope(fromToken, toToken, amountIn, minAmountOutPerUnitIn, routerData);
+        (amountOut, refundedIn) = _swapEnvelope(fromToken, toToken, amountIn, minAmountOut, routerData);
         emit AggregatorSwap(msg.sender, fromToken, toToken, amountIn, amountOut, refundedIn);
     }
 

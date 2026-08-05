@@ -132,9 +132,9 @@ contract BalancerSwapper_v1 is// solhint-disable-line contract-name-capwords
         address fromToken,
         address toToken,
         uint256 amountIn,
-        uint256 minAmountOutPerUnitIn
+        uint256 minAmountOut
     ) external override nonReentrant returns (uint256 amountOut) {
-        (amountOut, ) = _swapEnvelope(fromToken, toToken, amountIn, minAmountOutPerUnitIn, "");
+        (amountOut, ) = _swapEnvelope(fromToken, toToken, amountIn, minAmountOut, "");
     }
 
     /// @dev The Vault leg: resolve the governance-set poolId, approve exactly `amountIn`,
