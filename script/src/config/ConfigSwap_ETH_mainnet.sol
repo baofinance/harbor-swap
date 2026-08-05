@@ -21,6 +21,9 @@ abstract contract ConfigSwap_ETH_mainnet {
     //
     // Measured on mainnet at block 25,682,862 against the live pools. The composition is stated as a
     // sum: the terms compound multiplicatively, but below 1% the difference is under a basis point.
+    //
+    // Re-derive with `yarn measure:route-cost` (`yarn measure:route-cost 25682862` reproduces the
+    // values below); `script/measure-route-cost.sh` explains what each term is measured against.
     // ---------------------------------------------------------------------------------------------
 
     /// @notice fxSAVE/scrvUSD StableSwap-NG pool fee — static, as read from the pool (2e6 of 1e10).
