@@ -29,9 +29,9 @@ contract Swapper_v1 is// solhint-disable-line contract-name-capwords
                                     STORAGE (ERC7201)
     //////////////////////////////////////////////////////////////////////////*/
 
-    /// @custom:storage-location erc7201:harbor.storage.Swapper_v1
-    // chisel eval 'keccak256(abi.encode(uint256(keccak256("harbor.storage.Swapper_v1")) - 1)) & ~bytes32(uint256(0xff))'
-    bytes32 private constant _SWAPPER_STORAGE = 0x621f1e974b8f090c0c40cf27b5cb609d553670129036edc95c21350da335ba00;
+    /// @custom:storage-location erc7201:harbor.storage.Swapper
+    // chisel eval 'keccak256(abi.encode(uint256(keccak256("harbor.storage.Swapper")) - 1)) & ~bytes32(uint256(0xff))'
+    bytes32 private constant _SWAPPER_STORAGE = 0x272d0e8b8411949680c3c3cd26d3fcd30f9f18db2f9ab8f9c733e81384432c00;
 
     struct SwapperStorage {
         /// @notice Swap executor address per token pair. address(0) = no route configured.

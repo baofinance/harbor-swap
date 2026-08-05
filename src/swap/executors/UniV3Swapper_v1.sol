@@ -40,10 +40,10 @@ contract UniV3Swapper_v1 is// solhint-disable-line contract-name-capwords
                                     STORAGE (ERC7201)
     //////////////////////////////////////////////////////////////////////////*/
 
-    /// @custom:storage-location erc7201:harbor.storage.UniV3Swapper_v1
-    // chisel eval 'keccak256(abi.encode(uint256(keccak256("harbor.storage.UniV3Swapper_v1")) - 1)) & ~bytes32(uint256(0xff))'
+    /// @custom:storage-location erc7201:harbor.storage.UniV3Swapper
+    // chisel eval 'keccak256(abi.encode(uint256(keccak256("harbor.storage.UniV3Swapper")) - 1)) & ~bytes32(uint256(0xff))'
     bytes32 private constant _UNIV3_SWAPPER_STORAGE =
-        0xb58ff39df7f79777767b535a2624f02d14704811751af26be9cd34beb7b5b200;
+        0x66394d70f50adb518a8699a82f3d12ad4bfc8aa85f524a1cb026f1aa7b79fe00;
 
     struct UniV3SwapperStorage {
         /// @notice Encoded UniV3 exactInput route per token pair.

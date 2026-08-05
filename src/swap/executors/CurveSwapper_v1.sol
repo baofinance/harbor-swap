@@ -79,10 +79,10 @@ contract CurveSwapper_v1 is// solhint-disable-line contract-name-capwords
                                     STORAGE (ERC7201)
     //////////////////////////////////////////////////////////////////////////*/
 
-    /// @custom:storage-location erc7201:harbor.storage.CurveSwapper_v1
-    // chisel eval 'keccak256(abi.encode(uint256(keccak256("harbor.storage.CurveSwapper_v1")) - 1)) & ~bytes32(uint256(0xff))'
+    /// @custom:storage-location erc7201:harbor.storage.CurveSwapper
+    // chisel eval 'keccak256(abi.encode(uint256(keccak256("harbor.storage.CurveSwapper")) - 1)) & ~bytes32(uint256(0xff))'
     bytes32 private constant _CURVE_SWAPPER_STORAGE =
-        0x4cea0b39841df6539b02d75c8fa455a6d979caad65ff8d3cccd31047aec4a400;
+        0xfd1763f7937492f3551c4c4280387f43a539cf7675d7bd3d2b216f6810704a00;
 
     struct CurveSwapperStorage {
         mapping(address from => mapping(address to => CurveRoute)) routes;

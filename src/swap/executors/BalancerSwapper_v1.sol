@@ -87,10 +87,10 @@ contract BalancerSwapper_v1 is// solhint-disable-line contract-name-capwords
                                     STORAGE (ERC7201)
     //////////////////////////////////////////////////////////////////////////*/
 
-    /// @custom:storage-location erc7201:harbor.storage.BalancerSwapper_v1
-    // chisel eval 'keccak256(abi.encode(uint256(keccak256("harbor.storage.BalancerSwapper_v1")) - 1)) & ~bytes32(uint256(0xff))'
+    /// @custom:storage-location erc7201:harbor.storage.BalancerSwapper
+    // chisel eval 'keccak256(abi.encode(uint256(keccak256("harbor.storage.BalancerSwapper")) - 1)) & ~bytes32(uint256(0xff))'
     bytes32 private constant _BALANCER_SWAPPER_STORAGE =
-        0xea3800a75e0cb8ce4b65ed20b5c4b89176b433c382f0671090007010e85e6500;
+        0x6092cb6946731d5702098a00e91c69ae226bb1f7dce3565da417dea71fc35e00;
 
     struct BalancerSwapperStorage {
         /// @notice Per-pair Balancer pool ID. bytes32(0) = no route configured.
