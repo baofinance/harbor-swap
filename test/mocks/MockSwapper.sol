@@ -75,11 +75,19 @@ contract MockSwapper is Initializable, UUPSUpgradeable, ISwapper, ISwapperConfig
     }
 
     /// @inheritdoc ISwapper
-    function getRoute(address fromToken, address toToken) external view override returns (RouteInfo memory routeInfo) {
+    /// @dev Mirrors Swapper_v1: no on-chain quote, so `amountIn` is unnamed and every route comes
+    ///      back `quoted = false` / `amountOut = 0`.
+    function getRoute(
+        address fromToken,
+        address toToken,
+        uint256 /* amountIn */
+    ) external view override returns (RouteInfo memory routeInfo) {
         address exec = recordedExecutors[fromToken][toToken];
         routeInfo = RouteInfo({
             target: toToken,
             available: exec != address(0),
+            amountOut: 0,
+            quoted: false,
             routeCostRatio: exec != address(0) ? recordedRouteCostRatios[fromToken][toToken] : 0,
             swapExecutor: exec
         });
@@ -88,7 +96,8 @@ contract MockSwapper is Initializable, UUPSUpgradeable, ISwapper, ISwapperConfig
     /// @inheritdoc ISwapper
     function getRoutesFrom(
         address fromToken,
-        address[] calldata targets
+        address[] calldata targets,
+        uint256 /* amountIn */
     ) external view override returns (RouteInfo[] memory routeInfos) {
         routeInfos = new RouteInfo[](targets.length);
         for (uint256 i = 0; i < targets.length; i++) {
@@ -96,6 +105,8 @@ contract MockSwapper is Initializable, UUPSUpgradeable, ISwapper, ISwapperConfig
             routeInfos[i] = RouteInfo({
                 target: targets[i],
                 available: exec != address(0),
+                amountOut: 0,
+                quoted: false,
                 routeCostRatio: exec != address(0) ? recordedRouteCostRatios[fromToken][targets[i]] : 0,
                 swapExecutor: exec
             });

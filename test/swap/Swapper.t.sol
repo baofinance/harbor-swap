@@ -44,6 +44,9 @@ contract SwapperTest is BaoTest, Swapper {
     address swapperProxy;
 
     uint256 constant ROUTE_COST_RATIO = 3e15; // 0.3% as a 1e18-scaled ratio
+    // Size a live quote would price. Reserved: the registry ignores it. Non-zero so that an executor
+    // learning to quote is exercised against a real size rather than a degenerate one.
+    uint256 constant QUOTE_AMOUNT_IN = 1 ether;
     string constant SALT_PREFIX = "test_swapper";
 
     function setUp() public {
@@ -85,7 +88,7 @@ contract SwapperTest is BaoTest, Swapper {
 
         address[] memory targets = new address[](1);
         targets[0] = toToken;
-        ISwapper.RouteInfo[] memory infos = ISwapper(swapperProxy).getRoutesFrom(fromToken, targets);
+        ISwapper.RouteInfo[] memory infos = ISwapper(swapperProxy).getRoutesFrom(fromToken, targets, QUOTE_AMOUNT_IN);
         assertFalse(infos[0].available, "cleared route should be unavailable");
         assertEq(infos[0].swapExecutor, address(0), "cleared route executor should be address(0)");
         assertEq(infos[0].routeCostRatio, 0, "cleared route cost should be zero");
@@ -123,7 +126,7 @@ contract SwapperTest is BaoTest, Swapper {
         _configureRoute();
         address[] memory targets = new address[](1);
         targets[0] = toToken;
-        ISwapper.RouteInfo[] memory infos = ISwapper(swapperProxy).getRoutesFrom(fromToken, targets);
+        ISwapper.RouteInfo[] memory infos = ISwapper(swapperProxy).getRoutesFrom(fromToken, targets, QUOTE_AMOUNT_IN);
         assertEq(infos[0].swapExecutor, mockExecutor, "swapExecutor should match configured address");
     }
 
@@ -135,7 +138,7 @@ contract SwapperTest is BaoTest, Swapper {
         targets[0] = toToken;
         targets[1] = midToken; // not configured
 
-        ISwapper.RouteInfo[] memory infos = ISwapper(swapperProxy).getRoutesFrom(fromToken, targets);
+        ISwapper.RouteInfo[] memory infos = ISwapper(swapperProxy).getRoutesFrom(fromToken, targets, QUOTE_AMOUNT_IN);
 
         assertEq(infos.length, 2);
         assertTrue(infos[0].available, "configured pair: available=true");
@@ -153,27 +156,46 @@ contract SwapperTest is BaoTest, Swapper {
         address[] memory targets = new address[](1);
         targets[0] = toToken;
 
-        ISwapper.RouteInfo[] memory infos = ISwapper(swapperProxy).getRoutesFrom(fromToken, targets);
+        ISwapper.RouteInfo[] memory infos = ISwapper(swapperProxy).getRoutesFrom(fromToken, targets, QUOTE_AMOUNT_IN);
 
         assertEq(infos[0].routeCostRatio, customRatio, "routeCostRatio matches stored value");
+    }
+
+    /// @notice The registry prices nothing on-chain: a configured route comes back quoted=false and
+    ///         amountOut=0 whatever size is asked for, so routeCostRatio stays the only usable cost.
+    function test_getRoutesFrom_neverQuotes() public {
+        _configureRoute();
+        address[] memory targets = new address[](1);
+        targets[0] = toToken;
+
+        ISwapper.RouteInfo[] memory small = ISwapper(swapperProxy).getRoutesFrom(fromToken, targets, 1);
+        ISwapper.RouteInfo[] memory large = ISwapper(swapperProxy).getRoutesFrom(fromToken, targets, 1_000_000 ether);
+
+        assertFalse(small[0].quoted, "the registry does not price routes on-chain");
+        assertEq(small[0].amountOut, 0, "no quote means no amountOut");
+        assertEq(large[0].quoted, small[0].quoted, "size does not make a route quotable");
+        assertEq(large[0].amountOut, small[0].amountOut, "amountOut does not move with size while unquoted");
+        assertEq(large[0].routeCostRatio, small[0].routeCostRatio, "the configured cost is size-independent");
     }
 
     /// @notice getRoutesFrom with an empty targets array returns an empty result without reverting.
     function test_getRoutesFrom_emptyTargets() public view {
         address[] memory targets = new address[](0);
-        ISwapper.RouteInfo[] memory infos = ISwapper(swapperProxy).getRoutesFrom(fromToken, targets);
+        ISwapper.RouteInfo[] memory infos = ISwapper(swapperProxy).getRoutesFrom(fromToken, targets, QUOTE_AMOUNT_IN);
         assertEq(infos.length, 0, "empty targets: empty result");
     }
 
     /// @notice getRoute returns the same RouteInfo as a single-element getRoutesFrom batch.
     function test_getRoute_matchesGetRoutesFrom() public {
         _configureRoute();
-        ISwapper.RouteInfo memory single = ISwapper(swapperProxy).getRoute(fromToken, toToken);
+        ISwapper.RouteInfo memory single = ISwapper(swapperProxy).getRoute(fromToken, toToken, QUOTE_AMOUNT_IN);
         address[] memory targets = new address[](1);
         targets[0] = toToken;
-        ISwapper.RouteInfo[] memory batch = ISwapper(swapperProxy).getRoutesFrom(fromToken, targets);
+        ISwapper.RouteInfo[] memory batch = ISwapper(swapperProxy).getRoutesFrom(fromToken, targets, QUOTE_AMOUNT_IN);
         assertEq(single.target, batch[0].target);
         assertEq(single.available, batch[0].available);
+        assertEq(single.amountOut, batch[0].amountOut);
+        assertEq(single.quoted, batch[0].quoted);
         assertEq(single.routeCostRatio, batch[0].routeCostRatio);
         assertEq(single.swapExecutor, batch[0].swapExecutor);
     }

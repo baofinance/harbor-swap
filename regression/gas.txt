@@ -4,8 +4,8 @@ src/swap/Swapper_v1.sol:Swapper_v1
 | function name     |   max |   display |
 |-------------------|-------|-----------|
 | ROUTE_SETTER_ROLE |   239 | 2.390e+02 |
-| getRoute          |  5656 | 5.656e+03 |
-| getRoutesFrom     |  9767 | 9.767e+03 |
+| getRoute          |  5896 | 5.896e+03 |
+| getRoutesFrom     | 10151 | 1.015e+04 |
 | grantRoles        | 26330 | 2.633e+04 |
 | initialize        | 70340 | 7.034e+04 |
 | routeCostRatios   |  2788 | 2.788e+03 |

@@ -10,10 +10,11 @@ import {ISwapperConfig} from "@harbor-swap/interfaces/ISwapperConfig.sol";
 
 /// @title Swapper_v1
 /// @notice Swap route dispatcher. Pure registry: maps (from, to) → {swapExecutor, routeCostRatio}.
-///         HarborYield batch-queries getRoutesFrom() once per distribute(), then calls each
+///         HarborYield batch-queries getRoutesFrom() once per compound() pass, then calls each
 ///         swapExecutor directly — no routing logic here. DEX-specific logic lives in
 ///         executor contracts (e.g. UniV3Swapper_v1) that implement ISwapExecutor.
-///         `amountIn` is accepted for ABI forward-compat; v1 never sets `quoted` / `amountOut`.
+///         `amountIn` is reserved for a future on-chain quote: v1 ignores it and leaves
+///         `quoted = false` / `amountOut = 0` on every route, so no caller may branch on `quoted`.
 /// @dev Security properties:
 ///      - Swapper holds no funds and executes no swaps.
 ///      - swapExecutor addresses are owner-gated via setRoute.
@@ -78,27 +79,40 @@ contract Swapper_v1 is// solhint-disable-line contract-name-capwords
     }
 
     /// @inheritdoc ISwapper
-    function getRoute(address fromToken, address toToken) external view override returns (RouteInfo memory routeInfo) {
-        routeInfo = _routeInfo(fromToken, toToken);
+    function getRoute(
+        address fromToken,
+        address toToken,
+        uint256 amountIn
+    ) external view override returns (RouteInfo memory routeInfo) {
+        routeInfo = _routeInfo(fromToken, toToken, amountIn);
     }
 
     /// @inheritdoc ISwapper
     function getRoutesFrom(
         address fromToken,
-        address[] calldata targets
+        address[] calldata targets,
+        uint256 amountIn
     ) external view override returns (RouteInfo[] memory routeInfos) {
         routeInfos = new RouteInfo[](targets.length);
         for (uint256 i = 0; i < targets.length; i++) {
-            routeInfos[i] = _routeInfo(fromToken, targets[i]);
+            routeInfos[i] = _routeInfo(fromToken, targets[i], amountIn);
         }
     }
 
-    function _routeInfo(address fromToken, address toToken) private view returns (RouteInfo memory routeInfo) {
+    /// @dev Pure-registry fill: `quoted` is always false and `amountOut` always 0, so `amountIn` has
+    ///      nothing to price and is unnamed. Both become live when an executor can quote its venue.
+    function _routeInfo(
+        address fromToken,
+        address toToken,
+        uint256 /* amountIn */
+    ) private view returns (RouteInfo memory routeInfo) {
         SwapperStorage storage $ = _getSwapperStorage();
         address exec = $.swapExecutors[fromToken][toToken];
         routeInfo = RouteInfo({
             target: toToken,
             available: exec != address(0),
+            amountOut: 0,
+            quoted: false,
             routeCostRatio: exec != address(0) ? $.routeCostRatios[fromToken][toToken] : 0,
             swapExecutor: exec
         });
