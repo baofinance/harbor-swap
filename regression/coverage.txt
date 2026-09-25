@@ -1,15 +1,24 @@
-| File                                          | % Lines          | % Statements     | % Branches     | % Funcs          |
-|-----------------------------------------------|------------------|------------------|----------------|------------------|
-| script/src/Deploy_Swap.sol                    | X   0% (0/26)    | X   0% (0/25)    | ✓ 100% (0/0)   | X   0% (0/3)     |
-| script/src/HarborSwapDeployStack.sol          | X   0% (0/17)    | X   0% (0/9)     | X   0% (0/4)   | X   0% (0/4)     |
-| script/src/contracts/Swapper.sol              | X  88% (73/83)   | X  90% (73/81)   | ✓ 100% (0/0)   | X  79% (19/24)   |
-| src/swap/SwapExecutorBase.sol                 | ✓ 100% (22/22)   | ✓ 100% (26/26)   | ✓ 100% (6/6)   | ✓ 100% (1/1)     |
-| src/swap/Swapper_v1.sol                       | X  96% (25/26)   | ✓ 100% (20/20)   | ✓ 100% (0/0)   | X  90% (9/10)    |
-| src/swap/aggregator/OneInchSwapper_v1.sol     | ✓ 100% (24/24)   | ✓ 100% (19/19)   | ✓ 100% (3/3)   | ✓ 100% (6/6)     |
-| src/swap/aggregator/VeloraSwapper_v1.sol      | ✓ 100% (25/25)   | ✓ 100% (21/21)   | ✓ 100% (3/3)   | ✓ 100% (6/6)     |
-| src/swap/executors/BalancerSwapper_v1.sol     | ✓ 100% (23/23)   | ✓ 100% (15/15)   | ✓ 100% (1/1)   | ✓ 100% (8/8)     |
-| src/swap/executors/CurveExchangeLib.sol       | ✓ 100% (8/8)     | ✓ 100% (8/8)     | X  67% (2/3)   | ✓ 100% (1/1)     |
-| src/swap/executors/CurveSwapper_v1.sol        | ✓ 100% (25/25)   | ✓ 100% (21/21)   | ✓ 100% (3/3)   | ✓ 100% (8/8)     |
-| src/swap/executors/FxSaveWstEthSwapper_v1.sol | ✓ 100% (65/65)   | ✓ 100% (61/61)   | ✓ 100% (8/8)   | ✓ 100% (20/20)   |
-| src/swap/executors/UniV3Swapper_v1.sol        | ✓ 100% (22/22)   | ✓ 100% (14/14)   | ✓ 100% (1/1)   | ✓ 100% (8/8)     |
-| Total                                         | X  81% (541/671) | X  83% (458/554) | X  80% (66/83) | X  81% (145/180) |
+| File                                                    | % Lines           | % Statements      | % Branches      | % Funcs          |
+|---------------------------------------------------------|-------------------|-------------------|-----------------|------------------|
+| script/src/Deploy_Swap.sol                              | X   0% (0/74)     | X   0% (0/77)     | N/A (0/0)       | X   0% (0/11)    |
+| script/src/HarborSwapDeployStack.sol                    | X   0% (0/17)     | X   0% (0/9)      | X   0% (0/4)    | X   0% (0/4)     |
+| script/src/config/ConfigSwap_ETH_mainnet.sol            | X   0% (0/2)      | X   0% (0/2)      | N/A (0/0)       | X   0% (0/1)     |
+| script/src/contracts/Swapper.sol                        | X  82% (122/148)  | X  86% (125/146)  | N/A (0/0)       | X  70% (31/44)   |
+| src/swap/SwapExecutorBase.sol                           | ✓ 100% (22/22)    | ✓ 100% (26/26)    | ✓ 100% (6/6)    | ✓ 100% (1/1)     |
+| src/swap/Swapper_v1.sol                                 | X  96% (25/26)    | ✓ 100% (20/20)    | N/A (0/0)       | X  90% (9/10)    |
+| src/swap/aggregator/OneInchSwapper_v1.sol               | ✓ 100% (24/24)    | ✓ 100% (19/19)    | ✓ 100% (3/3)    | ✓ 100% (6/6)     |
+| src/swap/aggregator/VeloraSwapper_v1.sol                | ✓ 100% (25/25)    | ✓ 100% (21/21)    | ✓ 100% (3/3)    | ✓ 100% (6/6)     |
+| src/swap/config/ConfigFxSaveWstEthRoute_ETH_mainnet.sol | ✓ 100% (4/4)      | ✓ 100% (4/4)      | N/A (0/0)       | ✓ 100% (2/2)     |
+| src/swap/config/ConfigWstEthLbtcRoute_ETH_mainnet.sol   | ✓ 100% (2/2)      | ✓ 100% (2/2)      | N/A (0/0)       | ✓ 100% (1/1)     |
+| src/swap/config/ConfigWstEthWbtcRoute_ETH_mainnet.sol   | ✓ 100% (2/2)      | ✓ 100% (2/2)      | N/A (0/0)       | ✓ 100% (1/1)     |
+| src/swap/executors/BalancerSwapper_v1.sol               | ✓ 100% (23/23)    | ✓ 100% (15/15)    | ✓ 100% (1/1)    | ✓ 100% (8/8)     |
+| src/swap/executors/CurveExchangeLib.sol                 | ✓ 100% (8/8)      | ✓ 100% (8/8)      | ✓ 100% (3/3)    | ✓ 100% (1/1)     |
+| src/swap/executors/CurveSwapper_v1.sol                  | ✓ 100% (25/25)    | ✓ 100% (21/21)    | ✓ 100% (3/3)    | ✓ 100% (8/8)     |
+| src/swap/executors/FxSaveEurcSwapper_v1.sol             | X  70% (42/60)    | X  80% (41/51)    | X  25% (1/4)    | X  60% (12/20)   |
+| src/swap/executors/FxSaveLbtcSwapper_v1.sol             | X  73% (61/84)    | X  64% (53/83)    | X  30% (3/10)   | X  91% (21/23)   |
+| src/swap/executors/FxSaveWbtcSwapper_v1.sol             | X  74% (48/65)    | X  66% (40/61)    | X  38% (3/8)    | X  90% (18/20)   |
+| src/swap/executors/FxSaveWstEthSwapper_v1.sol           | X  98% (84/86)    | X  98% (85/87)    | X  80% (8/10)   | ✓ 100% (23/23)   |
+| src/swap/executors/UniV3Swapper_v1.sol                  | ✓ 100% (22/22)    | ✓ 100% (14/14)    | ✓ 100% (1/1)    | ✓ 100% (8/8)     |
+| src/swap/executors/WstEthLbtcSwapper_v1.sol             | X  67% (14/21)    | X  79% (15/19)    | ✓ 100% (1/1)    | X  50% (4/8)     |
+| src/swap/executors/WstEthWbtcSwapper_v1.sol             | X  67% (14/21)    | X  79% (15/19)    | ✓ 100% (1/1)    | X  50% (4/8)     |
+| Total                                                   | X  77% (893/1162) | X  77% (768/1002) | X  69% (75/109) | X  78% (261/334) |

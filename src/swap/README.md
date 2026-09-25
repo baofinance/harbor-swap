@@ -26,9 +26,19 @@ src/swap/
                                     exchange / exchange_underlying selector)
     BalancerSwapper_v1.sol          Balancer V2 single-swap executor (immutable Vault,
                                     per-pair bytes32 poolId, GIVEN_IN semantics)
-    FxSaveWstEthSwapper_v1.sol      Composite fxSAVE ↔ wstETH (Curve + scrvUSD vault + Curve)
+    FxSaveWstEthSwapper_v1.sol      Composite fxSAVE ↔ wstETH (Curve stables + UniV3 ETH hop)
+    FxSaveWbtcSwapper_v1.sol        Composite fxSAVE ↔ WBTC
+    FxSaveLbtcSwapper_v1.sol        Composite fxSAVE ↔ LBTC (Curve + UniV3 WBTC/LBTC 0.01%)
+    FxSaveEurcSwapper_v1.sol        Composite fxSAVE → EURC (Curve + UniV3); reverse via Velora
+    WstEthWbtcSwapper_v1.sol        UniV3 multi-hop wstETH → WBTC; reverse via Velora
+    WstEthLbtcSwapper_v1.sol        UniV3 multi-hop wstETH → LBTC; reverse via Velora
   config/
     ConfigFxSaveWstEthRoute_ETH_mainnet.sol  Mainnet route constants for FxSaveWstEthSwapper
+    ConfigFxSaveWbtcRoute_ETH_mainnet.sol
+    ConfigFxSaveLbtcRoute_ETH_mainnet.sol
+    ConfigFxSaveEurcRoute_ETH_mainnet.sol
+    ConfigWstEthWbtcRoute_ETH_mainnet.sol
+    ConfigWstEthLbtcRoute_ETH_mainnet.sol
   aggregator/
     IAggregatorSwapper.sol          swap(from, to, in, minOut, bytes) interface
     VeloraSwapper_v1.sol           Fixed-router (Velora Augustus v6.2) adapter on SwapExecutorBase
@@ -115,15 +125,27 @@ Properties:
 - Role gate (`REDISTRIBUTOR_ROLE`) lives on `HarborYield_v1.redistribute`; the adapter itself is open
   because it only ever spends `msg.sender`'s pre-approved balance.
 
-### HarborYield routing (hyETH example)
+### HarborYield routing (hy peg-equiv)
 
-When a collateral AutoCompounder calls `HarborYield_v1.distribute()` with fxSAVE rewards:
+When a collateral AutoCompounder calls `HarborYield_v1.distribute()` with residual rewards:
 
-1. **Phase 2 — compound:** If the Minter fee is within the swap-fee threshold, fxSAVE is
-   compounded into **haETH** and redeposited into the **collateral stability pool** (no swap).
-2. **Phase 3 — equiv vault:** Residual fxSAVE is swapped to **wstETH** via the direct executor
-   registered in `Swapper_v1` (production ETH: `FxSaveWstEthSwapper_v1`) and deposited into
-   the wstETH equivalent vault.
+1. **Phase 2 — compound:** If the Minter fee is within the swap-fee threshold, rewards are
+   compounded into **ha** and redeposited into the **collateral stability pool** (no swap).
+2. **Phase 3 — equiv vault:** Residual collateral is swapped **into the peg-equiv asset** via
+   a direct executor registered in `Swapper_v1`, then deposited into the equiv vault.
+
+| hy | Direct pair(s) | Executor |
+|----|----------------|----------|
+| hyETH | fxSAVE → wstETH | `FxSaveWstEthSwapper_v1` |
+| hyUSD | wstETH → fxSAVE | `FxSaveWstEthSwapper_v1` (reverse leg) |
+| hyBTC | fxSAVE → WBTC / LBTC | `FxSaveWbtcSwapper_v1` / `FxSaveLbtcSwapper_v1` |
+| hyBTC | wstETH → WBTC / LBTC | `WstEthWbtcSwapper_v1` / `WstEthLbtcSwapper_v1` |
+| hyEUR | fxSAVE → EURC | `FxSaveEurcSwapper_v1` |
+| hyEUR | wstETH → EURC | `UniV3Swapper_v1` (multi-hop via USDC) |
+| hyUSD | WBTC / LBTC → fxSAVE | `FxSaveWbtcSwapper_v1` / `FxSaveLbtcSwapper_v1` |
+
+**Reverse / remint** (peg-equiv → collateral, USDC mint into fxSAVE, etc.) uses Velora via
+`redistribute` — not direct executors. Equity → USDG is deferred.
 
 `distribute()` **never** calls the Velora aggregator. Keepers reach it only through `redistribute` for
 discretionary rebalances or routes not registered in `Swapper_v1`, naming the adapter and supplying its
@@ -141,6 +163,9 @@ Route changes emit events for indexers and deploy verification:
 | `BalancerSwapper_v1` | `RouteSet(...)` | `setRoute` |
 | `VeloraSwapper_v1` / `OneInchSwapper_v1` | `AggregatorSwap(...)` | each `swap` |
 | `FxSaveWstEthSwapper_v1` | `FxSaveWstEthSwap(...)` | each `swap` |
+| `FxSaveWbtcSwapper_v1` / `FxSaveLbtcSwapper_v1` | `FxSaveWbtcSwap` / `FxSaveLbtcSwap` | each `swap` |
+| `FxSaveEurcSwapper_v1` | `FxSaveEurcSwap(...)` | each `swap` |
+| `WstEthWbtcSwapper_v1` / `WstEthLbtcSwapper_v1` | `WstEthWbtcSwap` / `WstEthLbtcSwap` | each `swap` |
 
 Off-chain tooling can also call `ISwapper.getRoute(from, to)` for a single pair
 without building a one-element `targets` array.
@@ -167,7 +192,7 @@ namespace); proxy addresses are stable across upgrades.
   callers to a malicious executor but cannot directly drain HY because executors only act
   on tokens HY explicitly transfers + approves per call.
 
-Executors (`UniV3Swapper_v1`, `CurveSwapper_v1`, `BalancerSwapper_v1`, `FxSaveWstEthSwapper_v1`):
+Executors (`UniV3Swapper_v1`, `CurveSwapper_v1`, `BalancerSwapper_v1`, and hy peg-equiv composites):
 
 - **Approval target**:
   - `UniV3Swapper_v1`: immutable `ROUTER` (Uniswap V3 SwapRouter) set at construction.
@@ -177,16 +202,25 @@ Executors (`UniV3Swapper_v1`, `CurveSwapper_v1`, `BalancerSwapper_v1`, `FxSaveWs
     or a dedicated composite executor.
   - `CurveSwapper_v1`: per-pair pool address from governance-gated storage. Never
     caller-supplied; setter is `onlyOwnerOrRoles(ROUTE_SETTER_ROLE)`. **Single pool per call.**
-  - `FxSaveWstEthSwapper_v1`: hardcoded mainnet venues in
-    `config/ConfigFxSaveWstEthRoute_ETH_mainnet.sol` (two Curve pools + scrvUSD vault).
-    Supports **fxSAVE → wstETH** (redeem path) and **wstETH → fxSAVE** (deposit path).
-    **Route changes:** deploy a new implementation and UUPS-upgrade the proxy (or deploy a
-    new `fxSaveWstEthSwapper` proxy and re-register in `Swapper_v1`). There is no on-chain
-    per-pool setter.
-    **Intermediate slippage:** legs 1–2 use Curve `min_dy = 0`; only final wstETH output
-    is bounded by `minAmountOut` from HarborYield (oracle floor). Sandwich risk on
-    intermediate legs is accepted for this peg-critical route; monitor pool liquidity and
-    consider keeper/aggregator rebalances for large notionals.
+  - **Hy peg-equiv composites** (venues compiled into `config/Config*Route_ETH_mainnet.sol`;
+    Uni router is a constructor immutable where needed). Route changes require a new
+    implementation + UUPS upgrade (or a new proxy + `Swapper_v1.setRoute`). There is no
+    on-chain per-pool setter.
+    | Executor | Directions | Venues |
+    |----------|------------|--------|
+    | `FxSaveWstEthSwapper_v1` | fxSAVE ↔ wstETH | Curve fxSAVE/scrvUSD + crvUSD/USDC + Uni USDC→WETH→wstETH |
+    | `FxSaveWbtcSwapper_v1` | fxSAVE ↔ WBTC | Curve fxSAVE/scrvUSD + crvUSD/WBTC TwoCrypto |
+    | `FxSaveLbtcSwapper_v1` | fxSAVE ↔ LBTC | as WBTC + Uni WBTC/LBTC 0.01% |
+    | `FxSaveEurcSwapper_v1` | fxSAVE → EURC only | Curve fxSAVE/scrvUSD + crvUSD/USDC + Uni USDC/EURC; reverse via Velora |
+    | `WstEthWbtcSwapper_v1` | wstETH → WBTC only | Uni wstETH→WETH→WBTC; reverse via Velora |
+    | `WstEthLbtcSwapper_v1` | wstETH → LBTC only | Uni wstETH→WETH→WBTC→LBTC; reverse via Velora |
+    | `UniV3Swapper_v1` (hyEUR) | wstETH → EURC | Uni path via USDC (Layer 1 `setPath` at deploy) |
+    **Intermediate slippage (all Curve/Uni multi-leg composites):** intermediate legs use a
+    zero venue floor (`min_dy` / `amountOutMinimum = 0`); only final output is bounded by
+    HarborYield's oracle `minAmountOut`. Sandwich risk on intermediate legs is accepted for
+    these peg-critical distribute routes; monitor liquidity and prefer keeper/aggregator
+    rebalances for large notionals. Donated intermediate balances are never swept (balance
+    deltas only).
 - Pull `fromToken` from `msg.sender`, swap, deliver `toToken` to `msg.sender`.
 - Approval to the router/vault/pool is reset to zero after every swap.
 - Reentrancy guarded (transient storage) where the venue could call back (Curve pools
@@ -236,13 +270,17 @@ Deploy helpers:
   An overload accepting an explicit Vault address is used by unit tests.
 - `deployVeloraSwapper(state)` — primary Augustus v6.2 adapter ([`ConfigVelora`](../../script/src/config/ConfigVelora.sol))
 - `deployOneInchSwapper(state)` — optional 1inch v6 adapter ([`ConfigOneInch`](../../script/src/config/ConfigOneInch.sol))
-- `deployFxSaveWstEthSwapper(state)` — deploys `FxSaveWstEthSwapper_v1` with the mainnet
-  fxSAVE ↔ wstETH routes compiled into the implementation
-  ([`ConfigFxSaveWstEthRoute_ETH_mainnet`](config/ConfigFxSaveWstEthRoute_ETH_mainnet.sol)).
-- `configureFxSaveWstEthRoutes()` — on [`Deploy_Swap`](../../script/src/Deploy_Swap.sol):
-  registers both directions in `Swapper_v1` via `ISwapperConfig.setRoute` (uses
-  [`ConfigSwap_ETH_mainnet`](../../script/src/config/ConfigSwap_ETH_mainnet.sol) token +
-  fee constants). Called automatically by `Deploy_Swap.deploySwapInfrastructure`.
+- `deployFxSaveWstEthSwapper(state)` — fxSAVE ↔ wstETH (UniV3 router from `_uniV3RouterAddress()`)
+- `deployFxSaveWbtcSwapper(state)` — fxSAVE ↔ WBTC
+- `deployFxSaveLbtcSwapper(state)` — fxSAVE ↔ LBTC (UniV3 router from `_uniV3RouterAddress()`)
+- `deployFxSaveEurcSwapper(state)` — fxSAVE → EURC (UniV3 router from `_uniV3RouterAddress()`)
+- `deployWstEthWbtcSwapper(state)` — wstETH → WBTC UniV3 multi-hop (router from `_uniV3RouterAddress()`)
+- `deployWstEthLbtcSwapper(state)` — wstETH → LBTC UniV3 multi-hop (router from `_uniV3RouterAddress()`)
+- `configureHyPegEquivRoutes()` — on [`Deploy_Swap`](../../script/src/Deploy_Swap.sol):
+  registers all hy peg-equiv pairs (including UniV3 wstETH→EURC path) via `ISwapperConfig.setRoute`
+  ([`ConfigSwap_ETH_mainnet`](../../script/src/config/ConfigSwap_ETH_mainnet.sol)).
+- `configureFxSaveWstEthRoutes()` — subset helper still available for fxSAVE ↔ wstETH only.
+  `deploySwapInfrastructure` calls `configureHyPegEquivRoutes()` (includes wstETH).
 
 Each peg-specific Harbor Yield deployer overrides `_configureSwapRoutes` to do two layers of
 wiring per pair:
@@ -273,7 +311,8 @@ Harbor Yield and other consumers import it via submodule or dependency and use t
 
 **Intentional design tradeoffs** (see threat model above):
 
-- `FxSaveWstEthSwapper_v1` intermediate Curve legs use `min_dy = 0`; only final wstETH
-  output is bounded by the consumer's `minAmountOut`.
+- All hy peg-equiv multi-leg composites use a zero venue floor on intermediate legs; only
+  final output is bounded by the consumer's `minAmountOut`. One-way composites
+  (`FxSaveEurc`, `WstEthWbtc`, `WstEthLbtc`) remint via Velora `redistribute`.
 - Aggregator adapters are open-access; authorization lives on the consumer's `redistribute`
   `REDISTRIBUTOR_ROLE` gate.

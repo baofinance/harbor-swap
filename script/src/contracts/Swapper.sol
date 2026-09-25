@@ -12,6 +12,11 @@ import {BalancerSwapper_v1} from "@harbor-swap/executors/BalancerSwapper_v1.sol"
 import {VeloraSwapper_v1} from "@harbor-swap/aggregator/VeloraSwapper_v1.sol";
 import {OneInchSwapper_v1} from "@harbor-swap/aggregator/OneInchSwapper_v1.sol";
 import {FxSaveWstEthSwapper_v1} from "@harbor-swap/executors/FxSaveWstEthSwapper_v1.sol";
+import {FxSaveWbtcSwapper_v1} from "@harbor-swap/executors/FxSaveWbtcSwapper_v1.sol";
+import {FxSaveLbtcSwapper_v1} from "@harbor-swap/executors/FxSaveLbtcSwapper_v1.sol";
+import {FxSaveEurcSwapper_v1} from "@harbor-swap/executors/FxSaveEurcSwapper_v1.sol";
+import {WstEthWbtcSwapper_v1} from "@harbor-swap/executors/WstEthWbtcSwapper_v1.sol";
+import {WstEthLbtcSwapper_v1} from "@harbor-swap/executors/WstEthLbtcSwapper_v1.sol";
 
 import {ConfigVelora} from "@harbor-swap-script/config/ConfigVelora.sol";
 import {ConfigOneInch} from "@harbor-swap-script/config/ConfigOneInch.sol";
@@ -27,12 +32,20 @@ import {ConfigBalancer} from "@harbor-swap-script/config/ConfigBalancer.sol";
 ///      Salts: {saltPrefix}::swapper / {saltPrefix}::uniV3Swapper /
 ///      {saltPrefix}::curveSwapper / {saltPrefix}::balancerSwapper /
 ///      {saltPrefix}::veloraSwapper / {saltPrefix}::oneInchSwapper /
-///      {saltPrefix}::fxSaveWstEthSwapper (all shared, not peg-specific).
+///      {saltPrefix}::fxSaveWstEthSwapper / {saltPrefix}::fxSaveWbtcSwapper /
+///      {saltPrefix}::fxSaveLbtcSwapper / {saltPrefix}::fxSaveEurcSwapper /
+///      {saltPrefix}::wstEthWbtcSwapper / {saltPrefix}::wstEthLbtcSwapper
+///      (all shared, not peg-specific).
 ///
 ///      Deployment pattern:
 ///        deploySwapper(state)               — registry
 ///        deployUniV3Swapper(state)          — UniV3 executor (uses _uniV3RouterAddress())
 ///        deployFxSaveWstEthSwapper(state)   — fxSAVE ↔ wstETH composite (ETH mainnet route)
+///        deployFxSaveWbtcSwapper(state)     — fxSAVE ↔ WBTC composite
+///        deployFxSaveLbtcSwapper(state)     — fxSAVE ↔ LBTC composite (UniV3 wrap)
+///        deployFxSaveEurcSwapper(state)     — fxSAVE → EURC composite (needs UniV3 router)
+///        deployWstEthWbtcSwapper(state)     — wstETH → WBTC UniV3 multi-hop
+///        deployWstEthLbtcSwapper(state)     — wstETH → LBTC UniV3 multi-hop
 ///        deployCurveSwapper(state)     — Curve executor (no canonical router; pool
 ///                                        addresses come from per-pair setRoute config)
 ///        deployBalancerSwapper(state)  — Balancer V2 executor (uses ConfigBalancer.VAULT)
@@ -287,18 +300,32 @@ abstract contract Swapper is Deployer, ConfigVelora, ConfigOneInch, ConfigBalanc
     // ─── FxSaveWstEthSwapper_v1 (fxSAVE ↔ wstETH composite route) ───────────
 
     /// @notice Deploy FxSaveWstEthSwapper_v1 implementation only.
-    ///         Virtual so tests can inject a harness with mock pool/vault addresses.
-    function deployFxSaveWstEthSwapperImplementation() internal virtual returns (address impl) {
-        impl = address(new FxSaveWstEthSwapper_v1());
+    ///         Virtual so tests can inject a harness with mock pool/vault/router addresses.
+    function deployFxSaveWstEthSwapperImplementation(address uniV3Router) internal virtual returns (address impl) {
+        impl = address(new FxSaveWstEthSwapper_v1(uniV3Router));
     }
 
     /// @notice Deploy the fxSAVE ↔ wstETH composite executor for Ethereum mainnet.
     ///         Route constants are compiled into the implementation via
-    ///         `ConfigFxSaveWstEthRoute_ETH_mainnet`.
+    ///         `ConfigFxSaveWstEthRoute_ETH_mainnet`. Needs the UniV3 router for the ETH stack hop.
     function deployFxSaveWstEthSwapper(DeploymentTypes.State memory stateData) internal returns (address proxy) {
+        return _deployFxSaveWstEthSwapperWith(stateData, _uniV3RouterAddress());
+    }
+
+    function deployFxSaveWstEthSwapper(
+        DeploymentTypes.State memory stateData,
+        address uniV3Router
+    ) internal returns (address proxy) {
+        return _deployFxSaveWstEthSwapperWith(stateData, uniV3Router);
+    }
+
+    function _deployFxSaveWstEthSwapperWith(
+        DeploymentTypes.State memory stateData,
+        address uniV3Router
+    ) private returns (address proxy) {
         console.log("    > fxSaveWstEthSwapper");
 
-        address impl = deployFxSaveWstEthSwapperImplementation();
+        address impl = deployFxSaveWstEthSwapperImplementation(uniV3Router);
         console.log("        Impl: %s", impl);
 
         _recordImplementation(
@@ -311,5 +338,166 @@ abstract contract Swapper is Deployer, ConfigVelora, ConfigOneInch, ConfigBalanc
 
         bytes memory initData = abi.encodeCall(FxSaveWstEthSwapper_v1.initialize, (address(this), owner()));
         proxy = _deployProxyAndRecord(stateData, "fxSaveWstEthSwapper", impl, initData);
+    }
+
+    // ─── FxSaveWbtcSwapper_v1 (fxSAVE ↔ WBTC) ───────────────────────────────
+
+    function deployFxSaveWbtcSwapperImplementation() internal virtual returns (address impl) {
+        impl = address(new FxSaveWbtcSwapper_v1());
+    }
+
+    function deployFxSaveWbtcSwapper(DeploymentTypes.State memory stateData) internal returns (address proxy) {
+        console.log("    > fxSaveWbtcSwapper");
+        address impl = deployFxSaveWbtcSwapperImplementation();
+        console.log("        Impl: %s", impl);
+        _recordImplementation(
+            stateData,
+            "fxSaveWbtcSwapper",
+            "@harbor-swap/executors/FxSaveWbtcSwapper_v1.sol",
+            "FxSaveWbtcSwapper_v1",
+            impl
+        );
+        bytes memory initData = abi.encodeCall(FxSaveWbtcSwapper_v1.initialize, (address(this), owner()));
+        proxy = _deployProxyAndRecord(stateData, "fxSaveWbtcSwapper", impl, initData);
+    }
+
+    // ─── FxSaveLbtcSwapper_v1 (fxSAVE ↔ LBTC) ───────────────────────────────
+
+    function deployFxSaveLbtcSwapperImplementation(address uniV3Router) internal virtual returns (address impl) {
+        impl = address(new FxSaveLbtcSwapper_v1(uniV3Router));
+    }
+
+    function deployFxSaveLbtcSwapper(DeploymentTypes.State memory stateData) internal returns (address proxy) {
+        return _deployFxSaveLbtcSwapperWith(stateData, _uniV3RouterAddress());
+    }
+
+    function deployFxSaveLbtcSwapper(
+        DeploymentTypes.State memory stateData,
+        address uniV3Router
+    ) internal returns (address proxy) {
+        return _deployFxSaveLbtcSwapperWith(stateData, uniV3Router);
+    }
+
+    function _deployFxSaveLbtcSwapperWith(
+        DeploymentTypes.State memory stateData,
+        address uniV3Router
+    ) private returns (address proxy) {
+        console.log("    > fxSaveLbtcSwapper");
+        address impl = deployFxSaveLbtcSwapperImplementation(uniV3Router);
+        console.log("        Impl: %s", impl);
+        _recordImplementation(
+            stateData,
+            "fxSaveLbtcSwapper",
+            "@harbor-swap/executors/FxSaveLbtcSwapper_v1.sol",
+            "FxSaveLbtcSwapper_v1",
+            impl
+        );
+        bytes memory initData = abi.encodeCall(FxSaveLbtcSwapper_v1.initialize, (address(this), owner()));
+        proxy = _deployProxyAndRecord(stateData, "fxSaveLbtcSwapper", impl, initData);
+    }
+
+    // ─── FxSaveEurcSwapper_v1 (fxSAVE → EURC) ───────────────────────────────
+
+    function deployFxSaveEurcSwapperImplementation(address uniV3Router) internal virtual returns (address impl) {
+        impl = address(new FxSaveEurcSwapper_v1(uniV3Router));
+    }
+
+    function deployFxSaveEurcSwapper(DeploymentTypes.State memory stateData) internal returns (address proxy) {
+        return _deployFxSaveEurcSwapperWith(stateData, _uniV3RouterAddress());
+    }
+
+    function deployFxSaveEurcSwapper(
+        DeploymentTypes.State memory stateData,
+        address uniV3Router
+    ) internal returns (address proxy) {
+        return _deployFxSaveEurcSwapperWith(stateData, uniV3Router);
+    }
+
+    function _deployFxSaveEurcSwapperWith(
+        DeploymentTypes.State memory stateData,
+        address uniV3Router
+    ) private returns (address proxy) {
+        console.log("    > fxSaveEurcSwapper");
+        address impl = deployFxSaveEurcSwapperImplementation(uniV3Router);
+        console.log("        Impl: %s", impl);
+        _recordImplementation(
+            stateData,
+            "fxSaveEurcSwapper",
+            "@harbor-swap/executors/FxSaveEurcSwapper_v1.sol",
+            "FxSaveEurcSwapper_v1",
+            impl
+        );
+        bytes memory initData = abi.encodeCall(FxSaveEurcSwapper_v1.initialize, (address(this), owner()));
+        proxy = _deployProxyAndRecord(stateData, "fxSaveEurcSwapper", impl, initData);
+    }
+
+    // ─── WstEthWbtcSwapper_v1 (wstETH → WBTC) ───────────────────────────────
+
+    function deployWstEthWbtcSwapperImplementation(address uniV3Router) internal virtual returns (address impl) {
+        impl = address(new WstEthWbtcSwapper_v1(uniV3Router));
+    }
+
+    function deployWstEthWbtcSwapper(DeploymentTypes.State memory stateData) internal returns (address proxy) {
+        return _deployWstEthWbtcSwapperWith(stateData, _uniV3RouterAddress());
+    }
+
+    function deployWstEthWbtcSwapper(
+        DeploymentTypes.State memory stateData,
+        address uniV3Router
+    ) internal returns (address proxy) {
+        return _deployWstEthWbtcSwapperWith(stateData, uniV3Router);
+    }
+
+    function _deployWstEthWbtcSwapperWith(
+        DeploymentTypes.State memory stateData,
+        address uniV3Router
+    ) private returns (address proxy) {
+        console.log("    > wstEthWbtcSwapper");
+        address impl = deployWstEthWbtcSwapperImplementation(uniV3Router);
+        console.log("        Impl: %s", impl);
+        _recordImplementation(
+            stateData,
+            "wstEthWbtcSwapper",
+            "@harbor-swap/executors/WstEthWbtcSwapper_v1.sol",
+            "WstEthWbtcSwapper_v1",
+            impl
+        );
+        bytes memory initData = abi.encodeCall(WstEthWbtcSwapper_v1.initialize, (address(this), owner()));
+        proxy = _deployProxyAndRecord(stateData, "wstEthWbtcSwapper", impl, initData);
+    }
+
+    // ─── WstEthLbtcSwapper_v1 (wstETH → LBTC) ───────────────────────────────
+
+    function deployWstEthLbtcSwapperImplementation(address uniV3Router) internal virtual returns (address impl) {
+        impl = address(new WstEthLbtcSwapper_v1(uniV3Router));
+    }
+
+    function deployWstEthLbtcSwapper(DeploymentTypes.State memory stateData) internal returns (address proxy) {
+        return _deployWstEthLbtcSwapperWith(stateData, _uniV3RouterAddress());
+    }
+
+    function deployWstEthLbtcSwapper(
+        DeploymentTypes.State memory stateData,
+        address uniV3Router
+    ) internal returns (address proxy) {
+        return _deployWstEthLbtcSwapperWith(stateData, uniV3Router);
+    }
+
+    function _deployWstEthLbtcSwapperWith(
+        DeploymentTypes.State memory stateData,
+        address uniV3Router
+    ) private returns (address proxy) {
+        console.log("    > wstEthLbtcSwapper");
+        address impl = deployWstEthLbtcSwapperImplementation(uniV3Router);
+        console.log("        Impl: %s", impl);
+        _recordImplementation(
+            stateData,
+            "wstEthLbtcSwapper",
+            "@harbor-swap/executors/WstEthLbtcSwapper_v1.sol",
+            "WstEthLbtcSwapper_v1",
+            impl
+        );
+        bytes memory initData = abi.encodeCall(WstEthLbtcSwapper_v1.initialize, (address(this), owner()));
+        proxy = _deployProxyAndRecord(stateData, "wstEthLbtcSwapper", impl, initData);
     }
 }

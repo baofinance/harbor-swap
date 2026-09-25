@@ -35,8 +35,9 @@ Keepers pass the adapter address per `redistribute` call. Deploy Velora with `_v
 
 **Known design tradeoffs** (documented in `src/swap/README.md`):
 
-- `FxSaveWstEthSwapper_v1` intermediate Curve legs use `min_dy = 0`; only final wstETH
-  output is bounded by the consumer's `minAmountOut`. Route changes require impl upgrade.
+- Hy peg-equiv composites use a zero venue floor on intermediate legs; only final output
+  is bounded by the consumer's `minAmountOut`. Route changes require impl upgrade.
+  One-way paths remint via Velora `redistribute`.
 - Aggregator adapters are open-access; authorization lives on the consumer's `redistribute`
   `REDISTRIBUTOR_ROLE` gate. Selector allowlist does not validate swap parameters.
 
