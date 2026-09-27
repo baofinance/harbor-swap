@@ -42,7 +42,7 @@ src/swap/executors/BalancerSwapper_v1.sol:BalancerSwapper_v1
 | poolIds           |   2811 | 2.811e+03 |
 | proxiableUUID     |    341 | 3.410e+02 |
 | setRoute          |  28929 | 2.893e+04 |
-| swap              | 257782 | 2.578e+05 |
+| swap              | 258918 | 2.589e+05 |
 | sweep             |  37803 | 3.780e+04 |
 | upgradeToAndCall  |   5557 | 5.557e+03 |
 
@@ -55,27 +55,33 @@ src/swap/executors/CurveSwapper_v1.sol:CurveSwapper_v1
 | proxiableUUID     |    363 | 3.630e+02 |
 | routes            |   7644 | 7.644e+03 |
 | setRoute          |  76155 | 7.616e+04 |
-| swap              | 267482 | 2.675e+05 |
+| swap              | 257176 | 2.572e+05 |
 | sweep             |  37803 | 3.780e+04 |
 | upgradeToAndCall  |   5534 | 5.534e+03 |
+
+src/swap/executors/FxSaveEurcSwapper_v1.sol:FxSaveEurcSwapper_v1
+| function name   |    max |   display |
+|-----------------|--------|-----------|
+| initialize      |  70318 | 7.032e+04 |
+| swap            | 647070 | 6.471e+05 |
 
 src/swap/executors/FxSaveLbtcSwapper_v1.sol:FxSaveLbtcSwapper_v1
 | function name   |    max |   display |
 |-----------------|--------|-----------|
 | initialize      |  70318 | 7.032e+04 |
-| swap            | 679574 | 6.796e+05 |
+| swap            | 914880 | 9.149e+05 |
 
 src/swap/executors/FxSaveWbtcSwapper_v1.sol:FxSaveWbtcSwapper_v1
 | function name   |    max |   display |
 |-----------------|--------|-----------|
 | initialize      |  70318 | 7.032e+04 |
-| swap            | 544801 | 5.448e+05 |
+| swap            | 780656 | 7.807e+05 |
 
 src/swap/executors/FxSaveWstEthSwapper_v1.sol:FxSaveWstEthSwapper_v1
 | function name   |    max |   display |
 |-----------------|--------|-----------|
 | initialize      |  70318 | 7.032e+04 |
-| swap            | 759970 | 7.600e+05 |
+| swap            | 769349 | 7.693e+05 |
 
 src/swap/executors/UniV3Swapper_v1.sol:UniV3Swapper_v1
 | function name    |    max |   display |
@@ -86,9 +92,21 @@ src/swap/executors/UniV3Swapper_v1.sol:UniV3Swapper_v1
 | paths            |   9986 | 9.986e+03 |
 | proxiableUUID    |    342 | 3.420e+02 |
 | setPath          |  95014 | 9.501e+04 |
-| swap             | 205878 | 2.059e+05 |
+| swap             | 422841 | 4.228e+05 |
 | sweep            |  37826 | 3.783e+04 |
 | upgradeToAndCall |   5579 | 5.579e+03 |
+
+src/swap/executors/WstEthLbtcSwapper_v1.sol:WstEthLbtcSwapper_v1
+| function name   |    max |   display |
+|-----------------|--------|-----------|
+| initialize      |  70318 | 7.032e+04 |
+| swap            | 431843 | 4.318e+05 |
+
+src/swap/executors/WstEthWbtcSwapper_v1.sol:WstEthWbtcSwapper_v1
+| function name   |    max |   display |
+|-----------------|--------|-----------|
+| initialize      |  70318 | 7.032e+04 |
+| swap            | 295600 | 2.956e+05 |
 
 test/mocks/MockAggregationRouterV6.sol:MockAggregationRouterV6
 | function name       |    max |   display |
@@ -123,7 +141,6 @@ test/mocks/MockBalancerVault.sol:MockBalancerVault
 test/mocks/MockCurveCryptoPool.sol:MockCurveCryptoPool
 | function name   |   max |   display |
 |-----------------|-------|-----------|
-| rate            |  2340 | 2.340e+03 |
 | setCoin         | 44216 | 4.422e+04 |
 | setRate         | 26518 | 2.652e+04 |
 

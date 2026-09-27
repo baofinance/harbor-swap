@@ -36,7 +36,7 @@ abstract contract ForkUsdQuotes {
 
     /// @return price 1e8-scaled USD per 1 whole unit (Chainlink convention).
     function _feedUsd1e8(address feed) internal view returns (uint256 price) {
-        (, int256 answer,,,) = IAggregatorV3(feed).latestRoundData();
+        (, int256 answer, , , ) = IAggregatorV3(feed).latestRoundData();
         require(answer > 0, "bad feed");
         uint8 dec = IAggregatorV3(feed).decimals();
         price = uint256(answer);
@@ -121,7 +121,7 @@ abstract contract ForkUsdQuotes {
 
     /// @dev (out-in)/in * 1e6 → percent with 4 decimals (÷10000).
     function _formatUsdDiffPct(uint256 inUsd6, uint256 outUsd6) internal pure returns (string memory) {
-        int256 ppm = (int256(outUsd6) - int256(inUsd6)) * 1_000_000 / int256(inUsd6);
+        int256 ppm = ((int256(outUsd6) - int256(inUsd6)) * 1_000_000) / int256(inUsd6);
         bool neg = ppm < 0;
         uint256 absPpm = uint256(neg ? -ppm : ppm);
         uint256 whole = absPpm / 10_000;

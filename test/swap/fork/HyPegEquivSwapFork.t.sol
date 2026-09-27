@@ -106,7 +106,11 @@ contract HyPegEquivSwapForkTest is ForkTestBase, ForkUsdQuotes, Swapper, ConfigS
             crvUsd
         );
         wbtcOut = IQuoterV1(QUOTER_V1).quoteExactInputSingle(
-            WbtcCfg.USDC, WbtcCfg.WBTC, WbtcCfg.UNI_USDC_WBTC_FEE, usdc, 0
+            WbtcCfg.USDC,
+            WbtcCfg.WBTC,
+            WbtcCfg.UNI_USDC_WBTC_FEE,
+            usdc,
+            0
         );
 
         console.log("--- fxSAVE -> WBTC quote legs ---");
@@ -133,10 +137,18 @@ contract HyPegEquivSwapForkTest is ForkTestBase, ForkUsdQuotes, Swapper, ConfigS
             crvUsd
         );
         uint256 wbtcOut = IQuoterV1(QUOTER_V1).quoteExactInputSingle(
-            LbtcCfg.USDC, LbtcCfg.WBTC, LbtcCfg.UNI_USDC_WBTC_FEE, usdc, 0
+            LbtcCfg.USDC,
+            LbtcCfg.WBTC,
+            LbtcCfg.UNI_USDC_WBTC_FEE,
+            usdc,
+            0
         );
         lbtcOut = IQuoterV1(QUOTER_V1).quoteExactInputSingle(
-            LbtcCfg.WBTC, LbtcCfg.LBTC, LbtcCfg.UNI_WBTC_LBTC_FEE, wbtcOut, 0
+            LbtcCfg.WBTC,
+            LbtcCfg.LBTC,
+            LbtcCfg.UNI_WBTC_LBTC_FEE,
+            wbtcOut,
+            0
         );
 
         console.log("--- fxSAVE -> LBTC quote legs ---");
@@ -165,7 +177,11 @@ contract HyPegEquivSwapForkTest is ForkTestBase, ForkUsdQuotes, Swapper, ConfigS
             crvUsd
         );
         eurcOut = IQuoterV1(QUOTER_V1).quoteExactInputSingle(
-            EurcCfg.USDC, EurcCfg.EURC, EurcCfg.UNI_USDC_EURC_FEE, usdc, 0
+            EurcCfg.USDC,
+            EurcCfg.EURC,
+            EurcCfg.UNI_USDC_EURC_FEE,
+            usdc,
+            0
         );
 
         console.log("--- fxSAVE -> EURC quote legs ---");
@@ -181,10 +197,18 @@ contract HyPegEquivSwapForkTest is ForkTestBase, ForkUsdQuotes, Swapper, ConfigS
 
     function _quoteWstEthToWbtc(uint256 wstEthIn) internal returns (uint256 wbtcOut) {
         uint256 weth = IQuoterV1(QUOTER_V1).quoteExactInputSingle(
-            WstWbtcCfg.WSTETH, WstWbtcCfg.WETH, WstWbtcCfg.UNI_WSTETH_WETH_FEE, wstEthIn, 0
+            WstWbtcCfg.WSTETH,
+            WstWbtcCfg.WETH,
+            WstWbtcCfg.UNI_WSTETH_WETH_FEE,
+            wstEthIn,
+            0
         );
         wbtcOut = IQuoterV1(QUOTER_V1).quoteExactInputSingle(
-            WstWbtcCfg.WETH, WstWbtcCfg.WBTC, WstWbtcCfg.UNI_WETH_WBTC_FEE, weth, 0
+            WstWbtcCfg.WETH,
+            WstWbtcCfg.WBTC,
+            WstWbtcCfg.UNI_WETH_WBTC_FEE,
+            weth,
+            0
         );
 
         console.log("--- wstETH -> WBTC quote legs ---");
@@ -196,13 +220,25 @@ contract HyPegEquivSwapForkTest is ForkTestBase, ForkUsdQuotes, Swapper, ConfigS
 
     function _quoteWstEthToLbtc(uint256 wstEthIn) internal returns (uint256 lbtcOut) {
         uint256 weth = IQuoterV1(QUOTER_V1).quoteExactInputSingle(
-            WstLbtcCfg.WSTETH, WstLbtcCfg.WETH, WstLbtcCfg.UNI_WSTETH_WETH_FEE, wstEthIn, 0
+            WstLbtcCfg.WSTETH,
+            WstLbtcCfg.WETH,
+            WstLbtcCfg.UNI_WSTETH_WETH_FEE,
+            wstEthIn,
+            0
         );
         uint256 wbtc = IQuoterV1(QUOTER_V1).quoteExactInputSingle(
-            WstLbtcCfg.WETH, WstLbtcCfg.WBTC, WstLbtcCfg.UNI_WETH_WBTC_FEE, weth, 0
+            WstLbtcCfg.WETH,
+            WstLbtcCfg.WBTC,
+            WstLbtcCfg.UNI_WETH_WBTC_FEE,
+            weth,
+            0
         );
         lbtcOut = IQuoterV1(QUOTER_V1).quoteExactInputSingle(
-            WstLbtcCfg.WBTC, WstLbtcCfg.LBTC, WstLbtcCfg.UNI_WBTC_LBTC_FEE, wbtc, 0
+            WstLbtcCfg.WBTC,
+            WstLbtcCfg.LBTC,
+            WstLbtcCfg.UNI_WBTC_LBTC_FEE,
+            wbtc,
+            0
         );
 
         console.log("--- wstETH -> LBTC quote legs ---");
@@ -230,10 +266,18 @@ contract HyPegEquivSwapForkTest is ForkTestBase, ForkUsdQuotes, Swapper, ConfigS
 
     function _quoteWstEthToFxSave(uint256 wstEthIn) internal returns (uint256 fxSaveOut) {
         uint256 weth = IQuoterV1(QUOTER_V1).quoteExactInputSingle(
-            WstCfg.WSTETH, WstCfg.WETH, WstCfg.UNI_WETH_WSTETH_FEE, wstEthIn, 0
+            WstCfg.WSTETH,
+            WstCfg.WETH,
+            WstCfg.UNI_WETH_WSTETH_FEE,
+            wstEthIn,
+            0
         );
         uint256 usdc = IQuoterV1(QUOTER_V1).quoteExactInputSingle(
-            WstCfg.WETH, WstCfg.USDC, WstCfg.UNI_USDC_WETH_FEE, weth, 0
+            WstCfg.WETH,
+            WstCfg.USDC,
+            WstCfg.UNI_USDC_WETH_FEE,
+            weth,
+            0
         );
         uint256 crvUsd = ICurveStableSwapView(WstCfg.POOL_CRVUSD_USDC).get_dy(
             WstCfg.POOL_USD_I_USDC,
@@ -262,7 +306,11 @@ contract HyPegEquivSwapForkTest is ForkTestBase, ForkUsdQuotes, Swapper, ConfigS
 
     function _quoteWbtcToFxSave(uint256 wbtcIn) internal returns (uint256 fxSaveOut) {
         uint256 usdc = IQuoterV1(QUOTER_V1).quoteExactInputSingle(
-            WbtcCfg.WBTC, WbtcCfg.USDC, WbtcCfg.UNI_USDC_WBTC_FEE, wbtcIn, 0
+            WbtcCfg.WBTC,
+            WbtcCfg.USDC,
+            WbtcCfg.UNI_USDC_WBTC_FEE,
+            wbtcIn,
+            0
         );
         uint256 crvUsd = ICurveStableSwapView(WbtcCfg.POOL_CRVUSD_USDC).get_dy(
             WbtcCfg.POOL_USD_I_USDC,
@@ -289,10 +337,18 @@ contract HyPegEquivSwapForkTest is ForkTestBase, ForkUsdQuotes, Swapper, ConfigS
 
     function _quoteLbtcToFxSave(uint256 lbtcIn) internal returns (uint256 fxSaveOut) {
         uint256 wbtc = IQuoterV1(QUOTER_V1).quoteExactInputSingle(
-            LbtcCfg.LBTC, LbtcCfg.WBTC, LbtcCfg.UNI_WBTC_LBTC_FEE, lbtcIn, 0
+            LbtcCfg.LBTC,
+            LbtcCfg.WBTC,
+            LbtcCfg.UNI_WBTC_LBTC_FEE,
+            lbtcIn,
+            0
         );
         uint256 usdc = IQuoterV1(QUOTER_V1).quoteExactInputSingle(
-            LbtcCfg.WBTC, LbtcCfg.USDC, LbtcCfg.UNI_USDC_WBTC_FEE, wbtc, 0
+            LbtcCfg.WBTC,
+            LbtcCfg.USDC,
+            LbtcCfg.UNI_USDC_WBTC_FEE,
+            wbtc,
+            0
         );
         uint256 crvUsd = ICurveStableSwapView(LbtcCfg.POOL_CRVUSD_USDC).get_dy(
             LbtcCfg.POOL_USD_I_USDC,
@@ -330,7 +386,10 @@ contract HyPegEquivSwapForkTest is ForkTestBase, ForkUsdQuotes, Swapper, ConfigS
 
         IERC20(WbtcCfg.FXSAVE).approve(fxSaveWbtc, amountIn);
         uint256 amountOut = ISwapExecutor(fxSaveWbtc).swap(
-            WbtcCfg.FXSAVE, WbtcCfg.WBTC, amountIn, (expected * 99) / 100
+            WbtcCfg.FXSAVE,
+            WbtcCfg.WBTC,
+            amountIn,
+            (expected * 99) / 100
         );
         _logExecuted(
             "amountIn  fxSAVE ",
@@ -363,7 +422,10 @@ contract HyPegEquivSwapForkTest is ForkTestBase, ForkUsdQuotes, Swapper, ConfigS
 
         IERC20(LbtcCfg.FXSAVE).approve(fxSaveLbtc, amountIn);
         uint256 amountOut = ISwapExecutor(fxSaveLbtc).swap(
-            LbtcCfg.FXSAVE, LbtcCfg.LBTC, amountIn, (expected * 99) / 100
+            LbtcCfg.FXSAVE,
+            LbtcCfg.LBTC,
+            amountIn,
+            (expected * 99) / 100
         );
         _logExecuted(
             "amountIn  fxSAVE ",
@@ -398,7 +460,10 @@ contract HyPegEquivSwapForkTest is ForkTestBase, ForkUsdQuotes, Swapper, ConfigS
 
         IERC20(WbtcCfg.WBTC).approve(fxSaveWbtc, amountIn);
         uint256 amountOut = ISwapExecutor(fxSaveWbtc).swap(
-            WbtcCfg.WBTC, WbtcCfg.FXSAVE, amountIn, (expected * 99) / 100
+            WbtcCfg.WBTC,
+            WbtcCfg.FXSAVE,
+            amountIn,
+            (expected * 99) / 100
         );
         _logExecuted(
             "amountIn  WBTC   ",
@@ -432,7 +497,10 @@ contract HyPegEquivSwapForkTest is ForkTestBase, ForkUsdQuotes, Swapper, ConfigS
 
         IERC20(LbtcCfg.LBTC).approve(fxSaveLbtc, amountIn);
         uint256 amountOut = ISwapExecutor(fxSaveLbtc).swap(
-            LbtcCfg.LBTC, LbtcCfg.FXSAVE, amountIn, (expected * 99) / 100
+            LbtcCfg.LBTC,
+            LbtcCfg.FXSAVE,
+            amountIn,
+            (expected * 99) / 100
         );
         _logExecuted(
             "amountIn  LBTC   ",
@@ -468,7 +536,10 @@ contract HyPegEquivSwapForkTest is ForkTestBase, ForkUsdQuotes, Swapper, ConfigS
 
         IERC20(EurcCfg.FXSAVE).approve(fxSaveEurc, amountIn);
         uint256 amountOut = ISwapExecutor(fxSaveEurc).swap(
-            EurcCfg.FXSAVE, EurcCfg.EURC, amountIn, (expected * 99) / 100
+            EurcCfg.FXSAVE,
+            EurcCfg.EURC,
+            amountIn,
+            (expected * 99) / 100
         );
         _logExecuted(
             "amountIn  fxSAVE ",
@@ -500,7 +571,10 @@ contract HyPegEquivSwapForkTest is ForkTestBase, ForkUsdQuotes, Swapper, ConfigS
 
         IERC20(WstWbtcCfg.WSTETH).approve(wstEthWbtc, amountIn);
         uint256 amountOut = ISwapExecutor(wstEthWbtc).swap(
-            WstWbtcCfg.WSTETH, WstWbtcCfg.WBTC, amountIn, (expected * 99) / 100
+            WstWbtcCfg.WSTETH,
+            WstWbtcCfg.WBTC,
+            amountIn,
+            (expected * 99) / 100
         );
         _logExecuted(
             "amountIn  wstETH ",
@@ -528,7 +602,10 @@ contract HyPegEquivSwapForkTest is ForkTestBase, ForkUsdQuotes, Swapper, ConfigS
 
         IERC20(WstLbtcCfg.WSTETH).approve(wstEthLbtc, amountIn);
         uint256 amountOut = ISwapExecutor(wstEthLbtc).swap(
-            WstLbtcCfg.WSTETH, WstLbtcCfg.LBTC, amountIn, (expected * 99) / 100
+            WstLbtcCfg.WSTETH,
+            WstLbtcCfg.LBTC,
+            amountIn,
+            (expected * 99) / 100
         );
         _logExecuted(
             "amountIn  wstETH ",
@@ -583,7 +660,10 @@ contract HyPegEquivSwapForkTest is ForkTestBase, ForkUsdQuotes, Swapper, ConfigS
 
         IERC20(WstCfg.WSTETH).approve(fxSaveWstEth, amountIn);
         uint256 amountOut = ISwapExecutor(fxSaveWstEth).swap(
-            WstCfg.WSTETH, WstCfg.FXSAVE, amountIn, (expected * 99) / 100
+            WstCfg.WSTETH,
+            WstCfg.FXSAVE,
+            amountIn,
+            (expected * 99) / 100
         );
         _logExecuted(
             "amountIn  wstETH ",

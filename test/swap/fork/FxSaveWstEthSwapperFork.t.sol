@@ -121,12 +121,8 @@ contract FxSaveWstEthSwapperForkTest is ForkTestBase, ForkUsdQuotes, Swapper, Co
             Cfg.POOL_USD_I_USDC,
             crvUsd
         );
-        uint256 weth = IQuoterV1(QUOTER_V1).quoteExactInputSingle(
-            Cfg.USDC, Cfg.WETH, Cfg.UNI_USDC_WETH_FEE, usdc, 0
-        );
-        wstEthOut = IQuoterV1(QUOTER_V1).quoteExactInputSingle(
-            Cfg.WETH, Cfg.WSTETH, Cfg.UNI_WETH_WSTETH_FEE, weth, 0
-        );
+        uint256 weth = IQuoterV1(QUOTER_V1).quoteExactInputSingle(Cfg.USDC, Cfg.WETH, Cfg.UNI_USDC_WETH_FEE, usdc, 0);
+        wstEthOut = IQuoterV1(QUOTER_V1).quoteExactInputSingle(Cfg.WETH, Cfg.WSTETH, Cfg.UNI_WETH_WSTETH_FEE, weth, 0);
 
         console.log("--- fxSAVE -> wstETH quote legs ---");
         console.log("1 Curve fxSAVE/scrvUSD  in fxSAVE  ", fxSaveIn);
@@ -144,11 +140,13 @@ contract FxSaveWstEthSwapperForkTest is ForkTestBase, ForkUsdQuotes, Swapper, Co
     /// @dev TEMP quote + amount logs (visible with `forge test -vv`).
     function _quoteReverse(uint256 wstEthIn) internal returns (uint256 fxSaveOut) {
         uint256 weth = IQuoterV1(QUOTER_V1).quoteExactInputSingle(
-            Cfg.WSTETH, Cfg.WETH, Cfg.UNI_WETH_WSTETH_FEE, wstEthIn, 0
+            Cfg.WSTETH,
+            Cfg.WETH,
+            Cfg.UNI_WETH_WSTETH_FEE,
+            wstEthIn,
+            0
         );
-        uint256 usdc = IQuoterV1(QUOTER_V1).quoteExactInputSingle(
-            Cfg.WETH, Cfg.USDC, Cfg.UNI_USDC_WETH_FEE, weth, 0
-        );
+        uint256 usdc = IQuoterV1(QUOTER_V1).quoteExactInputSingle(Cfg.WETH, Cfg.USDC, Cfg.UNI_USDC_WETH_FEE, weth, 0);
         uint256 crvUsd = ICurveStableSwapView(Cfg.POOL_CRVUSD_USDC).get_dy(
             Cfg.POOL_USD_I_USDC,
             Cfg.POOL_USD_J_CRVUSD,

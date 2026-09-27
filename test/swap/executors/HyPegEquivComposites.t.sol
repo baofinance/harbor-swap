@@ -345,8 +345,7 @@ contract HyPegEquivCompositesTest is BaoTest, Swapper {
     }
 
     function deployFxSaveLbtcSwapperImplementation(address router_) internal override returns (address) {
-        return
-            address(new FxSaveLbtcHarness(router_, fxSAVE, lbtc, wbtc, usdc, crvUSD, scrvUsdVault, poolFx, poolUsd));
+        return address(new FxSaveLbtcHarness(router_, fxSAVE, lbtc, wbtc, usdc, crvUSD, scrvUsdVault, poolFx, poolUsd));
     }
 
     function deployFxSaveEurcSwapperImplementation(address router_) internal override returns (address) {
