@@ -4,7 +4,8 @@
 #
 # Routes measured:
 #   A) fxSAVE → EURC  (ConfigFxSaveEurcRoute) — Curve crvUSD/USDC + Uni USDC/EURC 0.05%
-#   B) wstETH → EURC  (ConfigSwap _wstEthToEurcUniPath) — Uni wstETH/USDC 0.05% + USDC/EURC 0.05%
+#   B) wstETH → EURC  (ConfigSwap _wstEthToEurcUniPath) — Uni wstETH/WETH 0.01%
+#        + WETH/USDC 0.05% + USDC/EURC 0.05%
 #
 # HOW TO RUN
 # ----------
@@ -17,6 +18,7 @@ readonly RPC="mainnet"
 readonly CFG="src/swap/config/ConfigFxSaveEurcRoute_ETH_mainnet.sol"
 readonly QUOTER_V1="0xb27308f9F90D607463bb33eA1BeBb41C27CE5AB6"
 readonly WSTETH="0x7f39C581F595B53c5cb19bD0b3f8dA6c935E2Ca0"
+readonly WETH="0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2"
 readonly EPSILON_FX=1000000000000000000
 readonly SIZE_FX=15000000000000000000000
 readonly EPSILON_WST=1000000000000000
@@ -31,13 +33,13 @@ sol_const() {
   echo "${value}"
 }
 
-uni_path2() {
-  python3 - "$1" "$2" "$3" "$4" "$5" <<'PY'
+uni_path3() {
+  python3 - "$1" "$2" "$3" "$4" "$5" "$6" "$7" <<'PY'
 import sys
-a,f1,b,f2,c=sys.argv[1:6]
+a,f1,b,f2,c,f3,d=sys.argv[1:8]
 def A(x): return x[2:].lower() if x.startswith("0x") else x.lower()
 def F(x): return int(x).to_bytes(3,"big").hex()
-print("0x"+A(a)+F(f1)+A(b)+F(f2)+A(c))
+print("0x"+A(a)+F(f1)+A(b)+F(f2)+A(c)+F(f3)+A(d))
 PY
 }
 
@@ -47,7 +49,8 @@ VAULT=$(sol_const SCRVUSD_VAULT)
 USDC=$(sol_const USDC)
 EURC=$(sol_const EURC)
 FEE_EUR=$(sol_const UNI_USDC_EURC_FEE)
-PATH_WST_EURC=$(uni_path2 "${WSTETH}" 500 "${USDC}" "${FEE_EUR}" "${EURC}")
+# Match ConfigSwap_ETH_mainnet._wstEthToEurcUniPath: 100 / 500 / 500
+PATH_WST_EURC=$(uni_path3 "${WSTETH}" 100 "${WETH}" 500 "${USDC}" "${FEE_EUR}" "${EURC}")
 
 BLOCK=${1:-$(cast block-number --rpc-url "${RPC}")}
 readonly BLOCK
@@ -99,7 +102,8 @@ print("--- Venue fees ---")
 print(f"FXSAVE_SCRVUSD_POOL_FEE   {scaled(pct_c(fee_fx)):.3e}  {pct_c(fee_fx):.4f}%")
 print(f"CRVUSD_USDC_POOL_FEE      {scaled(pct_c(fee_usd)):.3e}  {pct_c(fee_usd):.4f}%")
 print(f"UNI_USDC_EURC_FEE         {scaled(pct_u(fee_eur)):.3e}  {pct_u(fee_eur):.4f}%")
-print(f"UNI_WSTETH_USDC_FEE       {scaled(0.05):.3e}  0.0500%  (tier 500)")
+print(f"UNI_WSTETH_WETH_FEE       {scaled(0.01):.3e}  0.0100%  (tier 100)")
+print(f"UNI_USDC_WETH_FEE         {scaled(0.05):.3e}  0.0500%  (tier 500)")
 
 print()
 print("--- Quotes at size ---")
@@ -109,7 +113,7 @@ print(f"10  wstETH -> EURC        {out_wst / 1e6:,.2f} EURC   size-impact {imp_w
 print()
 print("--- Suggested composed ratios ---")
 fx = pct_c(fee_fx) + pct_c(fee_usd) + pct_u(fee_eur) + (imp if imp == imp else 0.3)
-wst = 0.05 + pct_u(fee_eur) + (imp_w if imp_w == imp_w else 0.3)
+wst = 0.01 + 0.05 + pct_u(fee_eur) + (imp_w if imp_w == imp_w else 0.3)
 print(f"FXSAVE_TO_EURC_ROUTE_COST_RATIO   {scaled(fx):.3e}  {fx:.4f}%")
 print(f"WSTETH_TO_EURC_ROUTE_COST_RATIO   {scaled(wst):.3e}  {wst:.4f}%")
 print()

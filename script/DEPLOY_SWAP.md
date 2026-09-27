@@ -229,7 +229,7 @@ Use `_veloraAggregatorDeployOptions()` when only the primary aggregator is neede
 | fxSAVE → EURC | `FxSaveEurcSwapper_v1` |
 | wstETH → WBTC | `WstEthWbtcSwapper_v1` (UniV3 via WETH) |
 | wstETH → LBTC | `WstEthLbtcSwapper_v1` (UniV3 via WETH→WBTC) |
-| wstETH → EURC | `UniV3Swapper_v1` (USDC multi-hop) |
+| wstETH → EURC | `UniV3Swapper_v1` (WETH → USDC → EURC) |
 
 **Harbor Yield consumer repo** then deploys HY infrastructure (Phase 2b) and wires routes
 via `_configureSwapRoutes` — typically registry + UniV3 only on default deploy, or the full
@@ -490,12 +490,17 @@ cast call $POOL_CRVUSD_USDC "get_dy(int128,int128,uint256)(uint256)" 1 0 $CRVUSD
 cast call $QUOTER_V1 "quoteExactInput(bytes,uint256)(uint256)" $PATH_USDC_TO_WSTETH $USDC_OUT --rpc-url mainnet
 ```
 
-**fxSAVE → WBTC (Curve composite legs):**
+**fxSAVE → WBTC (Curve stables + Uni USDC/WBTC 0.05%):**
 
 ```bash
+# 1–2) same as fxSAVE → wstETH through crvUSD
 cast call $POOL_FXSAVE_SCRVUSD "get_dy(int128,int128,uint256)(uint256)" 0 1 $AMOUNT_FXSAVE --rpc-url mainnet
 cast call $SCRVUSD_VAULT "previewRedeem(uint256)(uint256)" $SHARES --rpc-url mainnet
-cast call $POOL_CRVUSD_WBTC "get_dy(uint256,uint256,uint256)(uint256)" 0 1 $CRVUSD --rpc-url mainnet
+# 3) crvUSD → USDC (StableSwap: i=1 crvUSD, j=0 USDC)
+cast call $POOL_CRVUSD_USDC "get_dy(int128,int128,uint256)(uint256)" 1 0 $CRVUSD --rpc-url mainnet
+# 4) USDC → WBTC (UniV3 0.05%)
+cast call $QUOTER_V1 "quoteExactInputSingle(address,address,uint24,uint256,uint160)(uint256)" \
+  $USDC $WBTC 500 $USDC_OUT 0 --rpc-url mainnet
 ```
 
 **WBTC → LBTC (UniV3 0.01%):**

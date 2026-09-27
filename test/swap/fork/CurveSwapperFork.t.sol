@@ -13,7 +13,6 @@ import {ForkTestBase} from "@harbor-swap-test/fork/ForkTestBase.sol";
 import {CurveSwapper_v1} from "@harbor-swap/executors/CurveSwapper_v1.sol";
 import {CurveExchangeLib} from "@harbor-swap/executors/CurveExchangeLib.sol";
 import {ISwapExecutor} from "@harbor-swap/interfaces/ISwapExecutor.sol";
-import {ConfigFxSaveWbtcRoute_ETH_mainnet as Cfg} from "@harbor-swap/config/ConfigFxSaveWbtcRoute_ETH_mainnet.sol";
 import {Swapper} from "@harbor-swap-script/contracts/Swapper.sol";
 
 interface ICurveCryptoPoolView {
@@ -32,6 +31,14 @@ contract CurveSwapperForkTest is ForkTestBase, Swapper {
     function _uniV3RouterAddress() internal pure override returns (address) {
         return address(0);
     }
+
+    // Mainnet Curve TwoCrypto crvUSD/WBTC (venue probe — not used by fxSAVE composites).
+    address internal constant POOL_CRVUSD_WBTC = 0xD9FF8396554A0d18B2CFbeC53e1979b7ecCe8373;
+    address internal constant CRVUSD = 0xf939E0A03FB07F59A73314E73794Be0E57ac1b4E;
+    address internal constant WBTC = 0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599;
+    address internal constant POOL_FXSAVE_SCRVUSD = 0xb6E4821c6fCABe32f5F452dfD3Ef20Ce2A3a48E2;
+    int128 internal constant I_CRVUSD = 0;
+    int128 internal constant J_WBTC = 1;
 
     bytes4 constant EXCHANGE_INT128 = 0x3df02124; // exchange(int128,int128,uint256,uint256)
     bytes4 constant EXCHANGE_UINT256 = 0x5b41b908; // exchange(uint256,uint256,uint256,uint256)
@@ -54,18 +61,17 @@ contract CurveSwapperForkTest is ForkTestBase, Swapper {
     ///         `exchange`, no int128); fxSAVE/scrvUSD is StableSwap (int128 `exchange`).
     function test_fork_curvePoolFamilies_matchExpectedSelectors() public view {
         assertTrue(
-            _implementsSelector(Cfg.POOL_CRVUSD_WBTC, EXCHANGE_UINT256),
+            _implementsSelector(POOL_CRVUSD_WBTC, EXCHANGE_UINT256),
             "crvUSD/WBTC TwoCrypto must implement exchange(uint256,...)"
         );
         assertFalse(
-            _implementsSelector(Cfg.POOL_CRVUSD_WBTC, EXCHANGE_INT128),
+            _implementsSelector(POOL_CRVUSD_WBTC, EXCHANGE_INT128),
             "crvUSD/WBTC TwoCrypto must NOT implement exchange(int128,...)"
         );
         assertTrue(
-            _implementsSelector(Cfg.POOL_FXSAVE_SCRVUSD, EXCHANGE_INT128),
+            _implementsSelector(POOL_FXSAVE_SCRVUSD, EXCHANGE_INT128),
             "fxSAVE/scrvUSD must implement exchange(int128,...)"
         );
-        assertEq(uint8(Cfg.POOL_CRVUSD_WBTC_KIND), uint8(CurveExchangeLib.CurvePoolKind.Crypto));
     }
 
     /// @notice A real crvUSD -> WBTC swap through TwoCrypto yields WBTC within a tight band of
@@ -73,30 +79,30 @@ contract CurveSwapperForkTest is ForkTestBase, Swapper {
     ///         swallow that selector via Vyper __default__ and no-op); GREEN with uint256 encoding.
     function test_fork_swap_crvUsdToWbtc_throughTwoCrypto() public {
         uint256 amountIn = 1000 ether; // 1000 crvUSD
-        deal(Cfg.CRVUSD, address(this), amountIn);
+        deal(CRVUSD, address(this), amountIn);
 
         CurveSwapper_v1(curveSwapperProxy).setRoute(
-            Cfg.CRVUSD,
-            Cfg.WBTC,
-            Cfg.POOL_CRVUSD_WBTC,
-            Cfg.POOL_CRVUSD_WBTC_KIND,
-            Cfg.POOL_BTC_I_CRVUSD,
-            Cfg.POOL_BTC_J_WBTC,
+            CRVUSD,
+            WBTC,
+            POOL_CRVUSD_WBTC,
+            CurveExchangeLib.CurvePoolKind.Crypto,
+            I_CRVUSD,
+            J_WBTC,
             false
         );
 
-        uint256 expected = ICurveCryptoPoolView(Cfg.POOL_CRVUSD_WBTC).get_dy(
-            uint256(int256(Cfg.POOL_BTC_I_CRVUSD)),
-            uint256(int256(Cfg.POOL_BTC_J_WBTC)),
+        uint256 expected = ICurveCryptoPoolView(POOL_CRVUSD_WBTC).get_dy(
+            uint256(int256(I_CRVUSD)),
+            uint256(int256(J_WBTC)),
             amountIn
         );
         assertGt(expected, 0, "sanity: pool quotes a non-zero WBTC out");
 
-        IERC20(Cfg.CRVUSD).approve(curveSwapperProxy, amountIn);
-        uint256 amountOut = ISwapExecutor(curveSwapperProxy).swap(Cfg.CRVUSD, Cfg.WBTC, amountIn, 0);
+        IERC20(CRVUSD).approve(curveSwapperProxy, amountIn);
+        uint256 amountOut = ISwapExecutor(curveSwapperProxy).swap(CRVUSD, WBTC, amountIn, 0);
 
         assertApproxEqRel(amountOut, expected, 0.001e18, "WBTC out must match the pool quote");
-        assertEq(IERC20(Cfg.WBTC).balanceOf(address(this)), amountOut, "WBTC delivered to caller");
-        assertEq(IERC20(Cfg.CRVUSD).balanceOf(curveSwapperProxy), 0, "no crvUSD stranded in adapter");
+        assertEq(IERC20(WBTC).balanceOf(address(this)), amountOut, "WBTC delivered to caller");
+        assertEq(IERC20(CRVUSD).balanceOf(curveSwapperProxy), 0, "no crvUSD stranded in adapter");
     }
 }

@@ -21,6 +21,9 @@ abstract contract ConfigSwap_ETH_mainnet {
     /// @notice Native USDC on Ethereum mainnet.
     address internal constant USDC = 0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48;
 
+    /// @notice WETH on Ethereum mainnet (Uni mid-hop for wstETH → EURC).
+    address internal constant WETH = 0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2;
+
     /// @notice Mainnet Uniswap v3 SwapRouter.
     address internal constant UNIV3_ROUTER_MAINNET = 0xE592427A0AEce92De3Edee1F18E0157C05861564;
 
@@ -61,16 +64,16 @@ abstract contract ConfigSwap_ETH_mainnet {
 
     // ---------------------------------------------------------------------------------------------
     // hyBTC / hyUSD BTC-wrapper routes — refreshed via yarn measure:route-cost:btc.
-    // fxSAVE→BTC: Curve TwoCrypto ~1% + Uni wrap 0.01% + size impact.
+    // fxSAVE→BTC: Curve crvUSD/USDC + Uni USDC/WBTC 0.05% (+ LBTC wrap 0.01%) + size impact.
     // wstETH→BTC: UniV3 wstETH/WETH 0.01% + WETH/WBTC 0.05% (+ LBTC wrap 0.01%).
     // ---------------------------------------------------------------------------------------------
 
-    uint256 internal constant CRVUSD_WBTC_EXPECTED_FEE = 1e16; // ~1%
+    uint256 internal constant UNI_USDC_WBTC_FEE = 5e14; // 0.05%
     uint256 internal constant UNI_WBTC_LBTC_FEE = 1e14; // 0.01%
-    uint256 internal constant BTC_ROUTE_EXPECTED_SLIPPAGE = 3e15; // 0.3% at 15k fxSAVE
+    uint256 internal constant BTC_ROUTE_EXPECTED_SLIPPAGE = 1e15; // ~0.1% provisional after Uni hop
 
     uint256 internal constant FXSAVE_TO_WBTC_ROUTE_COST_RATIO =
-        FXSAVE_SCRVUSD_POOL_FEE + CRVUSD_WBTC_EXPECTED_FEE + BTC_ROUTE_EXPECTED_SLIPPAGE;
+        FXSAVE_SCRVUSD_POOL_FEE + CRVUSD_USDC_POOL_FEE + UNI_USDC_WBTC_FEE + BTC_ROUTE_EXPECTED_SLIPPAGE;
     uint256 internal constant WBTC_TO_FXSAVE_ROUTE_COST_RATIO = FXSAVE_TO_WBTC_ROUTE_COST_RATIO;
 
     uint256 internal constant FXSAVE_TO_LBTC_ROUTE_COST_RATIO = FXSAVE_TO_WBTC_ROUTE_COST_RATIO + UNI_WBTC_LBTC_FEE;
@@ -85,8 +88,8 @@ abstract contract ConfigSwap_ETH_mainnet {
     uint256 internal constant WSTETH_TO_LBTC_ROUTE_COST_RATIO = WSTETH_TO_WBTC_ROUTE_COST_RATIO + UNI_WBTC_LBTC_FEE;
 
     // ---------------------------------------------------------------------------------------------
-    // hyEUR routes — refreshed via yarn measure:route-cost:eur for fxSAVE→EURC.
-    // wstETH→EURC Uni path is thin at small epsilon; keep a conservative provisional impact.
+    // hyEUR routes — refreshed via yarn measure:route-cost:eur for fxSAVE→EURC / wstETH→EURC.
+    // wstETH→EURC uses the liquid ETH stack (not the thin direct wstETH/USDC 0.05% pool).
     // ---------------------------------------------------------------------------------------------
 
     uint256 internal constant UNI_USDC_EURC_FEE = 5e14; // 0.05%
@@ -95,13 +98,13 @@ abstract contract ConfigSwap_ETH_mainnet {
     uint256 internal constant FXSAVE_TO_EURC_ROUTE_COST_RATIO =
         FXSAVE_SCRVUSD_POOL_FEE + CRVUSD_USDC_POOL_FEE + UNI_USDC_EURC_FEE + EUR_ROUTE_EXPECTED_SLIPPAGE;
 
-    uint256 internal constant UNI_WSTETH_USDC_FEE = 5e14; // 0.05%
-    uint256 internal constant WSTETH_EUR_ROUTE_EXPECTED_SLIPPAGE = 5e15; // 0.5% provisional (thin vs epsilon)
+    /// @notice Size impact on wstETH → WETH → USDC → EURC (re-measure via measure:route-cost:eur at SIZE_WST=10).
+    uint256 internal constant WSTETH_EUR_ROUTE_EXPECTED_SLIPPAGE = 0; // ~flat vs epsilon at 10 wstETH
     uint256 internal constant WSTETH_TO_EURC_ROUTE_COST_RATIO =
-        UNI_WSTETH_USDC_FEE + UNI_USDC_EURC_FEE + WSTETH_EUR_ROUTE_EXPECTED_SLIPPAGE;
+        UNI_WSTETH_WETH_FEE + UNI_USDC_WETH_FEE + UNI_USDC_EURC_FEE + WSTETH_EUR_ROUTE_EXPECTED_SLIPPAGE;
 
-    /// @notice UniV3 multi-hop path bytes for wstETH → USDC (0.05%) → EURC (0.05%).
+    /// @notice UniV3 multi-hop: wstETH → WETH (0.01%) → USDC (0.05%) → EURC (0.05%).
     function _wstEthToEurcUniPath() internal pure returns (bytes memory) {
-        return abi.encodePacked(WSTETH, uint24(500), USDC, uint24(500), EURC);
+        return abi.encodePacked(WSTETH, uint24(100), WETH, uint24(500), USDC, uint24(500), EURC);
     }
 }

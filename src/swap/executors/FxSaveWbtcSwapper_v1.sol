@@ -6,6 +6,7 @@ import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/U
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC4626} from "@openzeppelin/contracts/interfaces/IERC4626.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {ISwapRouter} from "@uniswap/v3-periphery/contracts/interfaces/ISwapRouter.sol";
 
 import {HarborOwnableRoles} from "@bao/HarborOwnableRoles.sol";
 import {TokenHolder_v2} from "@bao/TokenHolder_v2.sol";
@@ -18,7 +19,9 @@ import {ConfigFxSaveWbtcRoute_ETH_mainnet} from "@harbor-swap/config/ConfigFxSav
 
 /// @title FxSaveWbtcSwapper_v1
 /// @notice Composite `ISwapExecutor` for fxSAVE ↔ WBTC on Ethereum mainnet (hyBTC out / hyUSD in).
-/// @dev Forward: fxSAVE → scrvUSD → redeem → crvUSD → WBTC. Reverse: WBTC → crvUSD → deposit → fxSAVE.
+/// @dev Forward: fxSAVE → scrvUSD → redeem → crvUSD → USDC (Curve) → WBTC (UniV3).
+///      Reverse: WBTC → USDC (UniV3) → crvUSD → deposit → fxSAVE.
+/// @custom:oz-upgrades-unsafe-allow state-variable-immutable constructor
 // slither-disable-next-line missing-inheritance
 contract FxSaveWbtcSwapper_v1 is// solhint-disable-line contract-name-capwords
  ISwapExecutor, HarborOwnableRoles, Initializable, UUPSUpgradeable, TokenHolder_v2, SwapExecutorBase {
@@ -36,9 +39,11 @@ contract FxSaveWbtcSwapper_v1 is// solhint-disable-line contract-name-capwords
         uint256 intermediateAmount
     );
 
-    /// @custom:oz-upgrades-unsafe-allow constructor
-    constructor() {
+    ISwapRouter public immutable ROUTER;
+
+    constructor(address uniV3Router_) {
         _disableInitializers();
+        ROUTER = ISwapRouter(uniV3Router_);
     }
 
     function initialize(address deployerOwner_, address pendingOwner_) external initializer {
@@ -98,30 +103,44 @@ contract FxSaveWbtcSwapper_v1 is// solhint-disable-line contract-name-capwords
 
         emit FxSaveWbtcSwap(msg.sender, _fxSave(), _wbtc(), amountIn, crvUsdOut);
 
+        uint256 usdcBefore = IERC20(_usdc()).balanceOf(address(this));
         _curveExchange(
-            _poolCrvUsdWbtc(),
-            _poolCrvUsdWbtcKind(),
-            _poolBtcICrvUsd(),
-            _poolBtcJWbtc(),
+            _poolCrvUsdUsdc(),
+            _poolCrvUsdUsdcKind(),
+            _poolUsdJCrvUsd(),
+            _poolUsdIUsdc(),
             _crvUsd(),
             crvUsdOut,
-            minAmountOut
+            0
         );
+        uint256 usdcOut = IERC20(_usdc()).balanceOf(address(this)) - usdcBefore;
+        // slither-disable-next-line incorrect-equality
+        if (usdcOut == 0) {
+            revert Token.ZeroInputBalance(_usdc());
+        }
+
+        _uniExactInputSingle(_usdc(), _wbtc(), usdcOut, minAmountOut);
     }
 
     function _executeWbtcToFxSave(uint256 amountIn, uint256 minAmountOut) private {
-        uint256 crvUsdBefore = IERC20(_crvUsd()).balanceOf(address(this));
+        uint256 usdcBefore = IERC20(_usdc()).balanceOf(address(this));
+        _uniExactInputSingle(_wbtc(), _usdc(), amountIn, 0);
+        uint256 usdcOut = IERC20(_usdc()).balanceOf(address(this)) - usdcBefore;
+        // slither-disable-next-line incorrect-equality
+        if (usdcOut == 0) {
+            revert Token.ZeroInputBalance(_usdc());
+        }
 
+        uint256 crvUsdBefore = IERC20(_crvUsd()).balanceOf(address(this));
         _curveExchange(
-            _poolCrvUsdWbtc(),
-            _poolCrvUsdWbtcKind(),
-            _poolBtcJWbtc(),
-            _poolBtcICrvUsd(),
-            _wbtc(),
-            amountIn,
+            _poolCrvUsdUsdc(),
+            _poolCrvUsdUsdcKind(),
+            _poolUsdIUsdc(),
+            _poolUsdJCrvUsd(),
+            _usdc(),
+            usdcOut,
             0
         );
-
         uint256 crvUsdBal = IERC20(_crvUsd()).balanceOf(address(this)) - crvUsdBefore;
         // slither-disable-next-line incorrect-equality
         if (crvUsdBal == 0) {
@@ -149,6 +168,24 @@ contract FxSaveWbtcSwapper_v1 is// solhint-disable-line contract-name-capwords
         );
     }
 
+    function _uniExactInputSingle(address tokenIn, address tokenOut, uint256 amountIn, uint256 minOut) private {
+        IERC20(tokenIn).forceApprove(address(ROUTER), amountIn);
+        // slither-disable-next-line unused-return — the envelope measures the output as a balance delta
+        ROUTER.exactInputSingle(
+            ISwapRouter.ExactInputSingleParams({
+                tokenIn: tokenIn,
+                tokenOut: tokenOut,
+                fee: _uniUsdcWbtcFee(),
+                recipient: address(this),
+                deadline: block.timestamp,
+                amountIn: amountIn,
+                amountOutMinimum: minOut,
+                sqrtPriceLimitX96: 0
+            })
+        );
+        IERC20(tokenIn).forceApprove(address(ROUTER), 0);
+    }
+
     function _curveExchange(
         address pool,
         CurveExchangeLib.CurvePoolKind kind,
@@ -171,6 +208,10 @@ contract FxSaveWbtcSwapper_v1 is// solhint-disable-line contract-name-capwords
         return ConfigFxSaveWbtcRoute_ETH_mainnet.WBTC;
     }
 
+    function _usdc() internal view virtual returns (address) {
+        return ConfigFxSaveWbtcRoute_ETH_mainnet.USDC;
+    }
+
     function _crvUsd() internal view virtual returns (address) {
         return ConfigFxSaveWbtcRoute_ETH_mainnet.CRVUSD;
     }
@@ -187,12 +228,12 @@ contract FxSaveWbtcSwapper_v1 is// solhint-disable-line contract-name-capwords
         return ConfigFxSaveWbtcRoute_ETH_mainnet.POOL_FXSAVE_SCRVUSD_KIND;
     }
 
-    function _poolCrvUsdWbtc() internal view virtual returns (address) {
-        return ConfigFxSaveWbtcRoute_ETH_mainnet.POOL_CRVUSD_WBTC;
+    function _poolCrvUsdUsdc() internal view virtual returns (address) {
+        return ConfigFxSaveWbtcRoute_ETH_mainnet.POOL_CRVUSD_USDC;
     }
 
-    function _poolCrvUsdWbtcKind() internal view virtual returns (CurveExchangeLib.CurvePoolKind) {
-        return ConfigFxSaveWbtcRoute_ETH_mainnet.POOL_CRVUSD_WBTC_KIND;
+    function _poolCrvUsdUsdcKind() internal view virtual returns (CurveExchangeLib.CurvePoolKind) {
+        return ConfigFxSaveWbtcRoute_ETH_mainnet.POOL_CRVUSD_USDC_KIND;
     }
 
     function _pool2IFxSave() internal view virtual returns (int128) {
@@ -203,12 +244,16 @@ contract FxSaveWbtcSwapper_v1 is// solhint-disable-line contract-name-capwords
         return ConfigFxSaveWbtcRoute_ETH_mainnet.POOL2_J_SCRVUSD;
     }
 
-    function _poolBtcICrvUsd() internal view virtual returns (int128) {
-        return ConfigFxSaveWbtcRoute_ETH_mainnet.POOL_BTC_I_CRVUSD;
+    function _poolUsdIUsdc() internal view virtual returns (int128) {
+        return ConfigFxSaveWbtcRoute_ETH_mainnet.POOL_USD_I_USDC;
     }
 
-    function _poolBtcJWbtc() internal view virtual returns (int128) {
-        return ConfigFxSaveWbtcRoute_ETH_mainnet.POOL_BTC_J_WBTC;
+    function _poolUsdJCrvUsd() internal view virtual returns (int128) {
+        return ConfigFxSaveWbtcRoute_ETH_mainnet.POOL_USD_J_CRVUSD;
+    }
+
+    function _uniUsdcWbtcFee() internal view virtual returns (uint24) {
+        return ConfigFxSaveWbtcRoute_ETH_mainnet.UNI_USDC_WBTC_FEE;
     }
 
     function _authorizeUpgrade(address) internal override onlyOwner {} // solhint-disable-line no-empty-blocks

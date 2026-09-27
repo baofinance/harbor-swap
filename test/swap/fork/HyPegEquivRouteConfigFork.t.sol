@@ -29,22 +29,28 @@ contract HyPegEquivRouteConfigForkTest is ForkTestBase {
 
     function test_fork_fxSaveWbtc_coinsMatch() public view {
         assertEq(
-            ICurvePoolCoins(WbtcCfg.POOL_CRVUSD_WBTC).coins(uint256(int256(WbtcCfg.POOL_BTC_I_CRVUSD))),
-            WbtcCfg.CRVUSD
+            ICurvePoolCoins(WbtcCfg.POOL_CRVUSD_USDC).coins(uint256(int256(WbtcCfg.POOL_USD_I_USDC))),
+            WbtcCfg.USDC
         );
         assertEq(
-            ICurvePoolCoins(WbtcCfg.POOL_CRVUSD_WBTC).coins(uint256(int256(WbtcCfg.POOL_BTC_J_WBTC))),
-            WbtcCfg.WBTC
+            ICurvePoolCoins(WbtcCfg.POOL_CRVUSD_USDC).coins(uint256(int256(WbtcCfg.POOL_USD_J_CRVUSD))),
+            WbtcCfg.CRVUSD
         );
         assertEq(
             ICurvePoolCoins(WbtcCfg.POOL_FXSAVE_SCRVUSD).coins(uint256(int256(WbtcCfg.POOL2_I_FXSAVE))),
             WbtcCfg.FXSAVE
         );
         assertEq(IERC4626(WbtcCfg.SCRVUSD_VAULT).asset(), WbtcCfg.CRVUSD);
+        assertTrue(
+            IUniswapV3Factory(UNIV3_FACTORY).getPool(WbtcCfg.USDC, WbtcCfg.WBTC, WbtcCfg.UNI_USDC_WBTC_FEE) !=
+                address(0),
+            "USDC/WBTC Uni 0.05%"
+        );
     }
 
     function test_fork_fxSaveLbtc_venuesExist() public view {
-        assertEq(LbtcCfg.POOL_CRVUSD_WBTC, WbtcCfg.POOL_CRVUSD_WBTC, "LBTC shares TwoCrypto with WBTC route");
+        assertEq(LbtcCfg.POOL_CRVUSD_USDC, WbtcCfg.POOL_CRVUSD_USDC, "LBTC shares Curve USD pool with WBTC route");
+        assertEq(LbtcCfg.UNI_USDC_WBTC_FEE, WbtcCfg.UNI_USDC_WBTC_FEE, "LBTC shares Uni USDC/WBTC fee");
         assertTrue(
             IUniswapV3Factory(UNIV3_FACTORY).getPool(LbtcCfg.WBTC, LbtcCfg.LBTC, LbtcCfg.UNI_WBTC_LBTC_FEE) !=
                 address(0),

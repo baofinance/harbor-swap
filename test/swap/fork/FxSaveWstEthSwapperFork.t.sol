@@ -10,8 +10,10 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC4626} from "@openzeppelin/contracts/interfaces/IERC4626.sol";
 import {DeploymentTypes} from "@bao-script/deployment/DeploymentTypes.sol";
 import {DeploymentState} from "@bao-script/deployment/DeploymentState.sol";
+import {console2 as console} from "forge-std/console2.sol";
 
 import {ForkTestBase} from "@harbor-swap-test/fork/ForkTestBase.sol";
+import {ForkUsdQuotes} from "@harbor-swap-test/fork/ForkUsdQuotes.sol";
 import {ISwapExecutor} from "@harbor-swap/interfaces/ISwapExecutor.sol";
 import {ConfigFxSaveWstEthRoute_ETH_mainnet as Cfg} from "@harbor-swap/config/ConfigFxSaveWstEthRoute_ETH_mainnet.sol";
 import {ConfigSwap_ETH_mainnet} from "@harbor-swap-script/config/ConfigSwap_ETH_mainnet.sol";
@@ -27,13 +29,21 @@ interface ICurvePoolCoins {
 
 interface IQuoterV1 {
     function quoteExactInput(bytes memory path, uint256 amountIn) external returns (uint256 amountOut);
+
+    function quoteExactInputSingle(
+        address tokenIn,
+        address tokenOut,
+        uint24 fee,
+        uint256 amountIn,
+        uint160 sqrtPriceLimitX96
+    ) external returns (uint256 amountOut);
 }
 
 interface IUniswapV3Factory {
     function getPool(address tokenA, address tokenB, uint24 fee) external view returns (address pool);
 }
 
-contract FxSaveWstEthSwapperForkTest is ForkTestBase, Swapper, ConfigSwap_ETH_mainnet {
+contract FxSaveWstEthSwapperForkTest is ForkTestBase, ForkUsdQuotes, Swapper, ConfigSwap_ETH_mainnet {
     function owner() public view override returns (address) {
         return address(this);
     }
@@ -98,6 +108,7 @@ contract FxSaveWstEthSwapperForkTest is ForkTestBase, Swapper, ConfigSwap_ETH_ma
         assertEq(Cfg.uniPathWstEthToUsdc().length, 20 + 3 + 20 + 3 + 20);
     }
 
+    /// @dev TEMP debug — remove after manual amount check.
     function _quoteForward(uint256 fxSaveIn) internal returns (uint256 wstEthOut) {
         uint256 shares = ICurveStableSwapView(Cfg.POOL_FXSAVE_SCRVUSD).get_dy(
             Cfg.POOL2_I_FXSAVE,
@@ -110,11 +121,34 @@ contract FxSaveWstEthSwapperForkTest is ForkTestBase, Swapper, ConfigSwap_ETH_ma
             Cfg.POOL_USD_I_USDC,
             crvUsd
         );
-        wstEthOut = IQuoterV1(QUOTER_V1).quoteExactInput(Cfg.uniPathUsdcToWstEth(), usdc);
+        uint256 weth = IQuoterV1(QUOTER_V1).quoteExactInputSingle(
+            Cfg.USDC, Cfg.WETH, Cfg.UNI_USDC_WETH_FEE, usdc, 0
+        );
+        wstEthOut = IQuoterV1(QUOTER_V1).quoteExactInputSingle(
+            Cfg.WETH, Cfg.WSTETH, Cfg.UNI_WETH_WSTETH_FEE, weth, 0
+        );
+
+        console.log("--- fxSAVE -> wstETH quote legs ---");
+        console.log("1 Curve fxSAVE/scrvUSD  in fxSAVE  ", fxSaveIn);
+        console.log("                        out shares ", shares);
+        console.log("2 vault redeem          in shares  ", shares);
+        console.log("                        out crvUSD ", crvUsd);
+        console.log("3 Curve crvUSD/USDC     in crvUSD  ", crvUsd);
+        console.log("                        out USDC   ", usdc);
+        console.log("4 Uni USDC/WETH 0.05%   in USDC    ", usdc);
+        console.log("                        out WETH   ", weth);
+        console.log("5 Uni WETH/wstETH 0.01% in WETH    ", weth);
+        console.log("                        out wstETH ", wstEthOut);
     }
 
+    /// @dev TEMP quote + amount logs (visible with `forge test -vv`).
     function _quoteReverse(uint256 wstEthIn) internal returns (uint256 fxSaveOut) {
-        uint256 usdc = IQuoterV1(QUOTER_V1).quoteExactInput(Cfg.uniPathWstEthToUsdc(), wstEthIn);
+        uint256 weth = IQuoterV1(QUOTER_V1).quoteExactInputSingle(
+            Cfg.WSTETH, Cfg.WETH, Cfg.UNI_WETH_WSTETH_FEE, wstEthIn, 0
+        );
+        uint256 usdc = IQuoterV1(QUOTER_V1).quoteExactInputSingle(
+            Cfg.WETH, Cfg.USDC, Cfg.UNI_USDC_WETH_FEE, weth, 0
+        );
         uint256 crvUsd = ICurveStableSwapView(Cfg.POOL_CRVUSD_USDC).get_dy(
             Cfg.POOL_USD_I_USDC,
             Cfg.POOL_USD_J_CRVUSD,
@@ -126,6 +160,18 @@ contract FxSaveWstEthSwapperForkTest is ForkTestBase, Swapper, ConfigSwap_ETH_ma
             Cfg.POOL2_I_FXSAVE,
             shares
         );
+
+        console.log("--- wstETH -> fxSAVE quote legs ---");
+        console.log("1 Uni wstETH/WETH 0.01% in wstETH  ", wstEthIn);
+        console.log("                        out WETH   ", weth);
+        console.log("2 Uni WETH/USDC 0.05%   in WETH    ", weth);
+        console.log("                        out USDC   ", usdc);
+        console.log("3 Curve USDC/crvUSD     in USDC    ", usdc);
+        console.log("                        out crvUSD ", crvUsd);
+        console.log("4 vault deposit         in crvUSD  ", crvUsd);
+        console.log("                        out shares ", shares);
+        console.log("5 Curve scrvUSD/fxSAVE  in shares  ", shares);
+        console.log("                        out fxSAVE ", fxSaveOut);
     }
 
     function test_fork_swap_fxSaveToWstEth_executes() public {
@@ -138,6 +184,17 @@ contract FxSaveWstEthSwapperForkTest is ForkTestBase, Swapper, ConfigSwap_ETH_ma
         IERC20(Cfg.FXSAVE).approve(swapperProxy, amountIn);
         uint256 minOut = (expected * 99) / 100;
         uint256 amountOut = ISwapExecutor(swapperProxy).swap(Cfg.FXSAVE, Cfg.WSTETH, amountIn, minOut);
+
+        _logExecuted(
+            "amountIn  fxSAVE ",
+            amountIn,
+            _fxSaveUsd6(amountIn),
+            "amountOut wstETH ",
+            amountOut,
+            _wstEthUsd6(amountOut),
+            expected,
+            _wstEthUsd6(expected)
+        );
 
         assertApproxEqRel(amountOut, expected, 0.002e18, "wstETH out must match the composed quote");
         assertEq(IERC20(Cfg.WSTETH).balanceOf(address(this)), amountOut, "wstETH delivered to caller");
@@ -163,6 +220,17 @@ contract FxSaveWstEthSwapperForkTest is ForkTestBase, Swapper, ConfigSwap_ETH_ma
         IERC20(Cfg.WSTETH).approve(swapperProxy, amountIn);
         uint256 minOut = (expected * 99) / 100;
         uint256 amountOut = ISwapExecutor(swapperProxy).swap(Cfg.WSTETH, Cfg.FXSAVE, amountIn, minOut);
+
+        _logExecuted(
+            "amountIn  wstETH ",
+            amountIn,
+            _wstEthUsd6(amountIn),
+            "amountOut fxSAVE ",
+            amountOut,
+            _fxSaveUsd6(amountOut),
+            expected,
+            _fxSaveUsd6(expected)
+        );
 
         assertApproxEqRel(amountOut, expected, 0.002e18, "fxSAVE out must match the composed quote");
         assertEq(IERC20(Cfg.FXSAVE).balanceOf(address(this)), amountOut, "fxSAVE delivered to caller");

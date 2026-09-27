@@ -19,8 +19,8 @@ import {ConfigFxSaveLbtcRoute_ETH_mainnet} from "@harbor-swap/config/ConfigFxSav
 
 /// @title FxSaveLbtcSwapper_v1
 /// @notice Composite `ISwapExecutor` for fxSAVE ↔ LBTC on Ethereum mainnet.
-/// @dev Forward: fxSAVE → scrvUSD → redeem → crvUSD → WBTC → LBTC (UniV3 0.01%).
-///      Reverse: LBTC → WBTC (UniV3) → crvUSD → deposit → fxSAVE.
+/// @dev Forward: fxSAVE → scrvUSD → redeem → crvUSD → USDC (Curve) → WBTC (Uni)
+///        → LBTC (Uni). Reverse: LBTC → WBTC → USDC → crvUSD → deposit → fxSAVE.
 /// @custom:oz-upgrades-unsafe-allow state-variable-immutable constructor
 // slither-disable-next-line missing-inheritance
 contract FxSaveLbtcSwapper_v1 is// solhint-disable-line contract-name-capwords
@@ -103,42 +103,58 @@ contract FxSaveLbtcSwapper_v1 is// solhint-disable-line contract-name-capwords
 
         emit FxSaveLbtcSwap(msg.sender, _fxSave(), _lbtc(), amountIn, crvUsdOut);
 
-        uint256 wbtcBefore = IERC20(_wbtc()).balanceOf(address(this));
+        uint256 usdcBefore = IERC20(_usdc()).balanceOf(address(this));
         _curveExchange(
-            _poolCrvUsdWbtc(),
-            _poolCrvUsdWbtcKind(),
-            _poolBtcICrvUsd(),
-            _poolBtcJWbtc(),
+            _poolCrvUsdUsdc(),
+            _poolCrvUsdUsdcKind(),
+            _poolUsdJCrvUsd(),
+            _poolUsdIUsdc(),
             _crvUsd(),
             crvUsdOut,
             0
         );
+        uint256 usdcOut = IERC20(_usdc()).balanceOf(address(this)) - usdcBefore;
+        // slither-disable-next-line incorrect-equality
+        if (usdcOut == 0) {
+            revert Token.ZeroInputBalance(_usdc());
+        }
+
+        uint256 wbtcBefore = IERC20(_wbtc()).balanceOf(address(this));
+        _uniExactInputSingle(_usdc(), _wbtc(), _uniUsdcWbtcFee(), usdcOut, 0);
         uint256 wbtcOut = IERC20(_wbtc()).balanceOf(address(this)) - wbtcBefore;
         // slither-disable-next-line incorrect-equality
         if (wbtcOut == 0) {
             revert Token.ZeroInputBalance(_wbtc());
         }
 
-        _uniExactInputSingle(_wbtc(), _lbtc(), wbtcOut, minAmountOut);
+        _uniExactInputSingle(_wbtc(), _lbtc(), _uniWbtcLbtcFee(), wbtcOut, minAmountOut);
     }
 
     function _executeLbtcToFxSave(uint256 amountIn, uint256 minAmountOut) private {
         uint256 wbtcBefore = IERC20(_wbtc()).balanceOf(address(this));
-        _uniExactInputSingle(_lbtc(), _wbtc(), amountIn, 0);
+        _uniExactInputSingle(_lbtc(), _wbtc(), _uniWbtcLbtcFee(), amountIn, 0);
         uint256 wbtcOut = IERC20(_wbtc()).balanceOf(address(this)) - wbtcBefore;
         // slither-disable-next-line incorrect-equality
         if (wbtcOut == 0) {
             revert Token.ZeroInputBalance(_wbtc());
         }
 
+        uint256 usdcBefore = IERC20(_usdc()).balanceOf(address(this));
+        _uniExactInputSingle(_wbtc(), _usdc(), _uniUsdcWbtcFee(), wbtcOut, 0);
+        uint256 usdcOut = IERC20(_usdc()).balanceOf(address(this)) - usdcBefore;
+        // slither-disable-next-line incorrect-equality
+        if (usdcOut == 0) {
+            revert Token.ZeroInputBalance(_usdc());
+        }
+
         uint256 crvUsdBefore = IERC20(_crvUsd()).balanceOf(address(this));
         _curveExchange(
-            _poolCrvUsdWbtc(),
-            _poolCrvUsdWbtcKind(),
-            _poolBtcJWbtc(),
-            _poolBtcICrvUsd(),
-            _wbtc(),
-            wbtcOut,
+            _poolCrvUsdUsdc(),
+            _poolCrvUsdUsdcKind(),
+            _poolUsdIUsdc(),
+            _poolUsdJCrvUsd(),
+            _usdc(),
+            usdcOut,
             0
         );
         uint256 crvUsdBal = IERC20(_crvUsd()).balanceOf(address(this)) - crvUsdBefore;
@@ -168,14 +184,20 @@ contract FxSaveLbtcSwapper_v1 is// solhint-disable-line contract-name-capwords
         );
     }
 
-    function _uniExactInputSingle(address tokenIn, address tokenOut, uint256 amountIn, uint256 minOut) private {
+    function _uniExactInputSingle(
+        address tokenIn,
+        address tokenOut,
+        uint24 fee,
+        uint256 amountIn,
+        uint256 minOut
+    ) private {
         IERC20(tokenIn).forceApprove(address(ROUTER), amountIn);
         // slither-disable-next-line unused-return — caller / envelope measures output as a balance delta
         ROUTER.exactInputSingle(
             ISwapRouter.ExactInputSingleParams({
                 tokenIn: tokenIn,
                 tokenOut: tokenOut,
-                fee: _uniWbtcLbtcFee(),
+                fee: fee,
                 recipient: address(this),
                 deadline: block.timestamp,
                 amountIn: amountIn,
@@ -212,6 +234,10 @@ contract FxSaveLbtcSwapper_v1 is// solhint-disable-line contract-name-capwords
         return ConfigFxSaveLbtcRoute_ETH_mainnet.WBTC;
     }
 
+    function _usdc() internal view virtual returns (address) {
+        return ConfigFxSaveLbtcRoute_ETH_mainnet.USDC;
+    }
+
     function _crvUsd() internal view virtual returns (address) {
         return ConfigFxSaveLbtcRoute_ETH_mainnet.CRVUSD;
     }
@@ -228,12 +254,12 @@ contract FxSaveLbtcSwapper_v1 is// solhint-disable-line contract-name-capwords
         return ConfigFxSaveLbtcRoute_ETH_mainnet.POOL_FXSAVE_SCRVUSD_KIND;
     }
 
-    function _poolCrvUsdWbtc() internal view virtual returns (address) {
-        return ConfigFxSaveLbtcRoute_ETH_mainnet.POOL_CRVUSD_WBTC;
+    function _poolCrvUsdUsdc() internal view virtual returns (address) {
+        return ConfigFxSaveLbtcRoute_ETH_mainnet.POOL_CRVUSD_USDC;
     }
 
-    function _poolCrvUsdWbtcKind() internal view virtual returns (CurveExchangeLib.CurvePoolKind) {
-        return ConfigFxSaveLbtcRoute_ETH_mainnet.POOL_CRVUSD_WBTC_KIND;
+    function _poolCrvUsdUsdcKind() internal view virtual returns (CurveExchangeLib.CurvePoolKind) {
+        return ConfigFxSaveLbtcRoute_ETH_mainnet.POOL_CRVUSD_USDC_KIND;
     }
 
     function _pool2IFxSave() internal view virtual returns (int128) {
@@ -244,12 +270,16 @@ contract FxSaveLbtcSwapper_v1 is// solhint-disable-line contract-name-capwords
         return ConfigFxSaveLbtcRoute_ETH_mainnet.POOL2_J_SCRVUSD;
     }
 
-    function _poolBtcICrvUsd() internal view virtual returns (int128) {
-        return ConfigFxSaveLbtcRoute_ETH_mainnet.POOL_BTC_I_CRVUSD;
+    function _poolUsdIUsdc() internal view virtual returns (int128) {
+        return ConfigFxSaveLbtcRoute_ETH_mainnet.POOL_USD_I_USDC;
     }
 
-    function _poolBtcJWbtc() internal view virtual returns (int128) {
-        return ConfigFxSaveLbtcRoute_ETH_mainnet.POOL_BTC_J_WBTC;
+    function _poolUsdJCrvUsd() internal view virtual returns (int128) {
+        return ConfigFxSaveLbtcRoute_ETH_mainnet.POOL_USD_J_CRVUSD;
+    }
+
+    function _uniUsdcWbtcFee() internal view virtual returns (uint24) {
+        return ConfigFxSaveLbtcRoute_ETH_mainnet.UNI_USDC_WBTC_FEE;
     }
 
     function _uniWbtcLbtcFee() internal view virtual returns (uint24) {

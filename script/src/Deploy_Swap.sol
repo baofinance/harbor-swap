@@ -112,11 +112,11 @@ abstract contract Deploy_Swap is HarborSwapDeployStack, ConfigSwap_ETH_mainnet {
         ISwapperConfig(swapper).setRoute(WSTETH, LBTC, exec, WSTETH_TO_LBTC_ROUTE_COST_RATIO);
     }
 
-    /// @notice Layer 1 UniV3 path + Layer 2 registry for wstETH → EURC (multi-hop via USDC).
+    /// @notice Layer 1 UniV3 path + Layer 2 registry for wstETH → EURC (via WETH/USDC).
     function configureWstEthEurcRoutes() internal {
         address swapper = _predictAddress("swapper");
         address uniV3 = _predictAddress("uniV3Swapper");
-        console.log("--- Configuring wstETH -> EURC (UniV3 multi-hop) ---");
+        console.log("--- Configuring wstETH -> EURC (UniV3 via WETH) ---");
         UniV3Swapper_v1(uniV3).setPath(WSTETH, EURC, _wstEthToEurcUniPath());
         ISwapperConfig(swapper).setRoute(WSTETH, EURC, uniV3, WSTETH_TO_EURC_ROUTE_COST_RATIO);
     }

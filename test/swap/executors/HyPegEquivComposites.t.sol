@@ -13,7 +13,6 @@ import {DeploymentState} from "@bao-script/deployment/DeploymentState.sol";
 
 import {MockERC20} from "@bao-test/mocks/MockERC20.sol";
 import {MockERC4626Vault} from "@harbor-swap-test-mocks/MockERC4626Vault.sol";
-import {MockCurveCryptoPool} from "@harbor-swap-test-mocks/MockCurveCryptoPool.sol";
 import {MockCurveStableSwapPool} from "@harbor-swap-test-mocks/MockCurveStableSwapPool.sol";
 import {MockFxSaveScrvUsdPool} from "@harbor-swap-test-mocks/MockFxSaveScrvUsdPool.sol";
 import {MockUniV3Router} from "@harbor-swap-test-mocks/MockUniV3Router.sol";
@@ -31,18 +30,29 @@ import {Swapper} from "@harbor-swap-script/contracts/Swapper.sol";
 contract FxSaveWbtcHarness is FxSaveWbtcSwapper_v1 {
     address private immutable _fx;
     address private immutable _wbtcTok;
+    address private immutable _usdcTok;
     address private immutable _crv;
     address private immutable _vault;
     address private immutable _poolFx;
-    address private immutable _poolBtc;
+    address private immutable _poolUsd;
 
-    constructor(address fx_, address wbtc_, address crv_, address vault_, address poolFx_, address poolBtc_) {
+    constructor(
+        address router_,
+        address fx_,
+        address wbtc_,
+        address usdc_,
+        address crv_,
+        address vault_,
+        address poolFx_,
+        address poolUsd_
+    ) FxSaveWbtcSwapper_v1(router_) {
         _fx = fx_;
         _wbtcTok = wbtc_;
+        _usdcTok = usdc_;
         _crv = crv_;
         _vault = vault_;
         _poolFx = poolFx_;
-        _poolBtc = poolBtc_;
+        _poolUsd = poolUsd_;
     }
 
     function _fxSave() internal view override returns (address) {
@@ -51,6 +61,10 @@ contract FxSaveWbtcHarness is FxSaveWbtcSwapper_v1 {
 
     function _wbtc() internal view override returns (address) {
         return _wbtcTok;
+    }
+
+    function _usdc() internal view override returns (address) {
+        return _usdcTok;
     }
 
     function _crvUsd() internal view override returns (address) {
@@ -65,8 +79,8 @@ contract FxSaveWbtcHarness is FxSaveWbtcSwapper_v1 {
         return _poolFx;
     }
 
-    function _poolCrvUsdWbtc() internal view override returns (address) {
-        return _poolBtc;
+    function _poolCrvUsdUsdc() internal view override returns (address) {
+        return _poolUsd;
     }
 }
 
@@ -74,28 +88,31 @@ contract FxSaveLbtcHarness is FxSaveLbtcSwapper_v1 {
     address private immutable _fx;
     address private immutable _lbtcTok;
     address private immutable _wbtcTok;
+    address private immutable _usdcTok;
     address private immutable _crv;
     address private immutable _vault;
     address private immutable _poolFx;
-    address private immutable _poolBtc;
+    address private immutable _poolUsd;
 
     constructor(
         address router_,
         address fx_,
         address lbtc_,
         address wbtc_,
+        address usdc_,
         address crv_,
         address vault_,
         address poolFx_,
-        address poolBtc_
+        address poolUsd_
     ) FxSaveLbtcSwapper_v1(router_) {
         _fx = fx_;
         _lbtcTok = lbtc_;
         _wbtcTok = wbtc_;
+        _usdcTok = usdc_;
         _crv = crv_;
         _vault = vault_;
         _poolFx = poolFx_;
-        _poolBtc = poolBtc_;
+        _poolUsd = poolUsd_;
     }
 
     function _fxSave() internal view override returns (address) {
@@ -110,6 +127,10 @@ contract FxSaveLbtcHarness is FxSaveLbtcSwapper_v1 {
         return _wbtcTok;
     }
 
+    function _usdc() internal view override returns (address) {
+        return _usdcTok;
+    }
+
     function _crvUsd() internal view override returns (address) {
         return _crv;
     }
@@ -122,8 +143,8 @@ contract FxSaveLbtcHarness is FxSaveLbtcSwapper_v1 {
         return _poolFx;
     }
 
-    function _poolCrvUsdWbtc() internal view override returns (address) {
-        return _poolBtc;
+    function _poolCrvUsdUsdc() internal view override returns (address) {
+        return _poolUsd;
     }
 }
 
@@ -261,7 +282,6 @@ contract HyPegEquivCompositesTest is BaoTest, Swapper {
     address crvUSD;
     address scrvUsdVault;
     address poolFx;
-    address poolBtc;
     address poolUsd;
     address uniRouter;
 
@@ -274,7 +294,6 @@ contract HyPegEquivCompositesTest is BaoTest, Swapper {
     string constant SALT = "test_hy_peg_composites";
 
     uint256 constant FX_RATE = 1.0013e18;
-    uint256 constant BTC_RATE = 1e10; // 18→8 style scale in fixtures (all 18-dec mocks: use 1e-8-ish)
     uint256 constant UNI_RATE = 1e18;
     uint256 constant USD_RATE = 1e18;
 
@@ -299,11 +318,6 @@ contract HyPegEquivCompositesTest is BaoTest, Swapper {
         poolFx = address(new MockFxSaveScrvUsdPool(fxSAVE, IERC4626(scrvUsdVault)));
         MockFxSaveScrvUsdPool(poolFx).setRate(FX_RATE);
 
-        poolBtc = address(new MockCurveCryptoPool());
-        MockCurveCryptoPool(payable(poolBtc)).setCoin(0, crvUSD);
-        MockCurveCryptoPool(payable(poolBtc)).setCoin(1, wbtc);
-        MockCurveCryptoPool(payable(poolBtc)).setRate(BTC_RATE);
-
         poolUsd = address(new MockCurveStableSwapPool());
         MockCurveStableSwapPool(poolUsd).setCoin(0, usdc);
         MockCurveStableSwapPool(poolUsd).setCoin(1, crvUSD);
@@ -326,12 +340,13 @@ contract HyPegEquivCompositesTest is BaoTest, Swapper {
         wstEthLbtc = _predictAddress("wstEthLbtcSwapper");
     }
 
-    function deployFxSaveWbtcSwapperImplementation() internal override returns (address) {
-        return address(new FxSaveWbtcHarness(fxSAVE, wbtc, crvUSD, scrvUsdVault, poolFx, poolBtc));
+    function deployFxSaveWbtcSwapperImplementation(address router_) internal override returns (address) {
+        return address(new FxSaveWbtcHarness(router_, fxSAVE, wbtc, usdc, crvUSD, scrvUsdVault, poolFx, poolUsd));
     }
 
     function deployFxSaveLbtcSwapperImplementation(address router_) internal override returns (address) {
-        return address(new FxSaveLbtcHarness(router_, fxSAVE, lbtc, wbtc, crvUSD, scrvUsdVault, poolFx, poolBtc));
+        return
+            address(new FxSaveLbtcHarness(router_, fxSAVE, lbtc, wbtc, usdc, crvUSD, scrvUsdVault, poolFx, poolUsd));
     }
 
     function deployFxSaveEurcSwapperImplementation(address router_) internal override returns (address) {
@@ -359,7 +374,23 @@ contract HyPegEquivCompositesTest is BaoTest, Swapper {
             IERC4626(scrvUsdVault).totalAssets() + minted + 1,
             IERC20(scrvUsdVault).totalSupply() + shares + 1
         );
-        wbtcOut = (crvUsdOut * MockCurveCryptoPool(payable(poolBtc)).rate()) / 1e18;
+        // StableSwap mock: crvUSD → USDC at USD_RATE, then Uni at UNI_RATE → WBTC.
+        uint256 usdcOut = (crvUsdOut * MockCurveStableSwapPool(poolUsd).rate()) / 1e18;
+        wbtcOut = (usdcOut * MockUniV3Router(uniRouter).rate()) / 1e18;
+    }
+
+    /// @dev WBTC → USDC (Uni) → crvUSD (StableSwap) → vault deposit → fxSAVE (Curve).
+    function _reverseWbtcQuote(uint256 amountIn) internal view returns (uint256 fxSaveOut) {
+        uint256 usdcOut = (amountIn * MockUniV3Router(uniRouter).rate()) / 1e18;
+        uint256 crvUsd = (usdcOut * MockCurveStableSwapPool(poolUsd).rate()) / 1e18;
+        uint256 shares = IERC4626(scrvUsdVault).previewDeposit(crvUsd);
+        fxSaveOut = (shares * MockFxSaveScrvUsdPool(poolFx).rate()) / 1e18;
+    }
+
+    /// @dev LBTC → WBTC (Uni) then same as `_reverseWbtcQuote`.
+    function _reverseLbtcQuote(uint256 amountIn) internal view returns (uint256 fxSaveOut) {
+        uint256 wbtcOut = (amountIn * MockUniV3Router(uniRouter).rate()) / 1e18;
+        fxSaveOut = _reverseWbtcQuote(wbtcOut);
     }
 
     // ── UnsupportedPair (selector-accurate) ──────────────────────────────────
@@ -404,7 +435,8 @@ contract HyPegEquivCompositesTest is BaoTest, Swapper {
         uint256 out = ISwapExecutor(fxSaveWbtc).swap(fxSAVE, wbtc, amountIn, 0);
         assertEq(out, expected);
         assertEq(IERC20(fxSAVE).allowance(fxSaveWbtc, poolFx), 0);
-        assertEq(IERC20(crvUSD).allowance(fxSaveWbtc, poolBtc), 0);
+        assertEq(IERC20(crvUSD).allowance(fxSaveWbtc, poolUsd), 0);
+        assertEq(IERC20(usdc).allowance(fxSaveWbtc, uniRouter), 0);
     }
 
     function test_fxSaveWbtc_ignoresDonatedShares() public {
@@ -432,8 +464,38 @@ contract HyPegEquivCompositesTest is BaoTest, Swapper {
         uint256 out = ISwapExecutor(fxSaveLbtc).swap(fxSAVE, lbtc, amountIn, 0);
         assertEq(out, expected);
         assertEq(IERC20(fxSAVE).allowance(fxSaveLbtc, poolFx), 0);
-        assertEq(IERC20(crvUSD).allowance(fxSaveLbtc, poolBtc), 0);
+        assertEq(IERC20(crvUSD).allowance(fxSaveLbtc, poolUsd), 0);
+        assertEq(IERC20(usdc).allowance(fxSaveLbtc, uniRouter), 0);
         assertEq(IERC20(wbtc).allowance(fxSaveLbtc, uniRouter), 0);
+    }
+
+    function test_fxSaveWbtc_reverse_approvalsCleared() public {
+        uint256 amountIn = 1 ether;
+        _mintApprove(wbtc, fxSaveWbtc, amountIn);
+        uint256 expected = _reverseWbtcQuote(amountIn);
+
+        uint256 out = ISwapExecutor(fxSaveWbtc).swap(wbtc, fxSAVE, amountIn, 0);
+        assertEq(out, expected);
+        assertEq(IERC20(fxSAVE).balanceOf(address(this)), out);
+        assertEq(IERC20(wbtc).allowance(fxSaveWbtc, uniRouter), 0);
+        assertEq(IERC20(usdc).allowance(fxSaveWbtc, poolUsd), 0);
+        assertEq(IERC20(crvUSD).allowance(fxSaveWbtc, scrvUsdVault), 0);
+        assertEq(IERC20(scrvUsdVault).allowance(fxSaveWbtc, poolFx), 0);
+    }
+
+    function test_fxSaveLbtc_reverse_approvalsCleared() public {
+        uint256 amountIn = 1 ether;
+        _mintApprove(lbtc, fxSaveLbtc, amountIn);
+        uint256 expected = _reverseLbtcQuote(amountIn);
+
+        uint256 out = ISwapExecutor(fxSaveLbtc).swap(lbtc, fxSAVE, amountIn, 0);
+        assertEq(out, expected);
+        assertEq(IERC20(fxSAVE).balanceOf(address(this)), out);
+        assertEq(IERC20(lbtc).allowance(fxSaveLbtc, uniRouter), 0);
+        assertEq(IERC20(wbtc).allowance(fxSaveLbtc, uniRouter), 0);
+        assertEq(IERC20(usdc).allowance(fxSaveLbtc, poolUsd), 0);
+        assertEq(IERC20(crvUSD).allowance(fxSaveLbtc, scrvUsdVault), 0);
+        assertEq(IERC20(scrvUsdVault).allowance(fxSaveLbtc, poolFx), 0);
     }
 
     function test_fxSaveEurc_happyPath_approvalsCleared() public {

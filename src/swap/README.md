@@ -141,7 +141,7 @@ When a collateral AutoCompounder calls `HarborYield_v1.distribute()` with residu
 | hyBTC | fxSAVE → WBTC / LBTC | `FxSaveWbtcSwapper_v1` / `FxSaveLbtcSwapper_v1` |
 | hyBTC | wstETH → WBTC / LBTC | `WstEthWbtcSwapper_v1` / `WstEthLbtcSwapper_v1` |
 | hyEUR | fxSAVE → EURC | `FxSaveEurcSwapper_v1` |
-| hyEUR | wstETH → EURC | `UniV3Swapper_v1` (multi-hop via USDC) |
+| hyEUR | wstETH → EURC | `UniV3Swapper_v1` (multi-hop via WETH/USDC) |
 | hyUSD | WBTC / LBTC → fxSAVE | `FxSaveWbtcSwapper_v1` / `FxSaveLbtcSwapper_v1` |
 
 **Reverse / remint** (peg-equiv → collateral, USDC mint into fxSAVE, etc.) uses Velora via
@@ -209,12 +209,12 @@ Executors (`UniV3Swapper_v1`, `CurveSwapper_v1`, `BalancerSwapper_v1`, and hy pe
     | Executor | Directions | Venues |
     |----------|------------|--------|
     | `FxSaveWstEthSwapper_v1` | fxSAVE ↔ wstETH | Curve fxSAVE/scrvUSD + crvUSD/USDC + Uni USDC→WETH→wstETH |
-    | `FxSaveWbtcSwapper_v1` | fxSAVE ↔ WBTC | Curve fxSAVE/scrvUSD + crvUSD/WBTC TwoCrypto |
+    | `FxSaveWbtcSwapper_v1` | fxSAVE ↔ WBTC | Curve fxSAVE/scrvUSD + crvUSD/USDC + Uni USDC/WBTC |
     | `FxSaveLbtcSwapper_v1` | fxSAVE ↔ LBTC | as WBTC + Uni WBTC/LBTC 0.01% |
     | `FxSaveEurcSwapper_v1` | fxSAVE → EURC only | Curve fxSAVE/scrvUSD + crvUSD/USDC + Uni USDC/EURC; reverse via Velora |
     | `WstEthWbtcSwapper_v1` | wstETH → WBTC only | Uni wstETH→WETH→WBTC; reverse via Velora |
     | `WstEthLbtcSwapper_v1` | wstETH → LBTC only | Uni wstETH→WETH→WBTC→LBTC; reverse via Velora |
-    | `UniV3Swapper_v1` (hyEUR) | wstETH → EURC | Uni path via USDC (Layer 1 `setPath` at deploy) |
+    | `UniV3Swapper_v1` (hyEUR) | wstETH → EURC | Uni wstETH→WETH→USDC→EURC (Layer 1 `setPath` at deploy) |
     **Intermediate slippage (all Curve/Uni multi-leg composites):** intermediate legs use a
     zero venue floor (`min_dy` / `amountOutMinimum = 0`); only final output is bounded by
     HarborYield's oracle `minAmountOut`. Sandwich risk on intermediate legs is accepted for

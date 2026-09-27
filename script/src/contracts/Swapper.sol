@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.28 <0.9.0;
 
-import {console2 as console} from "forge-std/console2.sol";
 import {Deployer} from "@bao-script/deployment/Deployer.sol";
 import {DeploymentTypes} from "@bao-script/deployment/DeploymentTypes.sol";
 
@@ -76,10 +75,8 @@ abstract contract Swapper is Deployer, ConfigVelora, ConfigOneInch, ConfigBalanc
     }
 
     function deploySwapper(DeploymentTypes.State memory stateData) internal returns (address proxy) {
-        console.log("    > swapper");
-
         address impl = deploySwapperImplementation();
-        console.log("        Impl: %s", impl);
+        _logDeploy("swapper", impl);
 
         _recordImplementation(stateData, "swapper", "@harbor-swap/Swapper_v1.sol", "Swapper_v1", impl);
 
@@ -118,10 +115,8 @@ abstract contract Swapper is Deployer, ConfigVelora, ConfigOneInch, ConfigBalanc
         DeploymentTypes.State memory stateData,
         address uniV3Router
     ) private returns (address proxy) {
-        console.log("    > uniV3Swapper");
-
         address impl = deployUniV3SwapperImplementation(uniV3Router);
-        console.log("        Impl: %s", impl);
+        _logDeploy("uniV3Swapper", impl);
 
         _recordImplementation(
             stateData,
@@ -148,10 +143,8 @@ abstract contract Swapper is Deployer, ConfigVelora, ConfigOneInch, ConfigBalanc
     ///         `CurveSwapper_v1.setRoute(from, to, pool, kind, i, j, useUnderlying)` after
     ///         deployment (kind = the pool's Curve family, StableSwap vs Crypto).
     function deployCurveSwapper(DeploymentTypes.State memory stateData) internal returns (address proxy) {
-        console.log("    > curveSwapper");
-
         address impl = deployCurveSwapperImplementation();
-        console.log("        Impl: %s", impl);
+        _logDeploy("curveSwapper", impl);
 
         _recordImplementation(
             stateData,
@@ -192,10 +185,8 @@ abstract contract Swapper is Deployer, ConfigVelora, ConfigOneInch, ConfigBalanc
         DeploymentTypes.State memory stateData,
         address vault
     ) private returns (address proxy) {
-        console.log("    > balancerSwapper");
-
         address impl = deployBalancerSwapperImplementation(vault);
-        console.log("        Impl: %s", impl);
+        _logDeploy("balancerSwapper", impl);
 
         _recordImplementation(
             stateData,
@@ -236,10 +227,8 @@ abstract contract Swapper is Deployer, ConfigVelora, ConfigOneInch, ConfigBalanc
         DeploymentTypes.State memory stateData,
         address veloraRouter
     ) private returns (address proxy) {
-        console.log("    > veloraSwapper");
-
         address impl = deployVeloraSwapperImplementation(veloraRouter);
-        console.log("        Impl: %s", impl);
+        _logDeploy("veloraSwapper", impl);
 
         _recordImplementation(
             stateData,
@@ -280,10 +269,8 @@ abstract contract Swapper is Deployer, ConfigVelora, ConfigOneInch, ConfigBalanc
         DeploymentTypes.State memory stateData,
         address oneInchRouter
     ) private returns (address proxy) {
-        console.log("    > oneInchSwapper");
-
         address impl = deployOneInchSwapperImplementation(oneInchRouter);
-        console.log("        Impl: %s", impl);
+        _logDeploy("oneInchSwapper", impl);
 
         _recordImplementation(
             stateData,
@@ -323,10 +310,8 @@ abstract contract Swapper is Deployer, ConfigVelora, ConfigOneInch, ConfigBalanc
         DeploymentTypes.State memory stateData,
         address uniV3Router
     ) private returns (address proxy) {
-        console.log("    > fxSaveWstEthSwapper");
-
         address impl = deployFxSaveWstEthSwapperImplementation(uniV3Router);
-        console.log("        Impl: %s", impl);
+        _logDeploy("fxSaveWstEthSwapper", impl);
 
         _recordImplementation(
             stateData,
@@ -342,14 +327,27 @@ abstract contract Swapper is Deployer, ConfigVelora, ConfigOneInch, ConfigBalanc
 
     // ─── FxSaveWbtcSwapper_v1 (fxSAVE ↔ WBTC) ───────────────────────────────
 
-    function deployFxSaveWbtcSwapperImplementation() internal virtual returns (address impl) {
-        impl = address(new FxSaveWbtcSwapper_v1());
+    function deployFxSaveWbtcSwapperImplementation(address uniV3Router) internal virtual returns (address impl) {
+        impl = address(new FxSaveWbtcSwapper_v1(uniV3Router));
     }
 
     function deployFxSaveWbtcSwapper(DeploymentTypes.State memory stateData) internal returns (address proxy) {
-        console.log("    > fxSaveWbtcSwapper");
-        address impl = deployFxSaveWbtcSwapperImplementation();
-        console.log("        Impl: %s", impl);
+        return _deployFxSaveWbtcSwapperWith(stateData, _uniV3RouterAddress());
+    }
+
+    function deployFxSaveWbtcSwapper(
+        DeploymentTypes.State memory stateData,
+        address uniV3Router
+    ) internal returns (address proxy) {
+        return _deployFxSaveWbtcSwapperWith(stateData, uniV3Router);
+    }
+
+    function _deployFxSaveWbtcSwapperWith(
+        DeploymentTypes.State memory stateData,
+        address uniV3Router
+    ) private returns (address proxy) {
+        address impl = deployFxSaveWbtcSwapperImplementation(uniV3Router);
+        _logDeploy("fxSaveWbtcSwapper", impl);
         _recordImplementation(
             stateData,
             "fxSaveWbtcSwapper",
@@ -382,9 +380,8 @@ abstract contract Swapper is Deployer, ConfigVelora, ConfigOneInch, ConfigBalanc
         DeploymentTypes.State memory stateData,
         address uniV3Router
     ) private returns (address proxy) {
-        console.log("    > fxSaveLbtcSwapper");
         address impl = deployFxSaveLbtcSwapperImplementation(uniV3Router);
-        console.log("        Impl: %s", impl);
+        _logDeploy("fxSaveLbtcSwapper", impl);
         _recordImplementation(
             stateData,
             "fxSaveLbtcSwapper",
@@ -417,9 +414,8 @@ abstract contract Swapper is Deployer, ConfigVelora, ConfigOneInch, ConfigBalanc
         DeploymentTypes.State memory stateData,
         address uniV3Router
     ) private returns (address proxy) {
-        console.log("    > fxSaveEurcSwapper");
         address impl = deployFxSaveEurcSwapperImplementation(uniV3Router);
-        console.log("        Impl: %s", impl);
+        _logDeploy("fxSaveEurcSwapper", impl);
         _recordImplementation(
             stateData,
             "fxSaveEurcSwapper",
@@ -452,9 +448,8 @@ abstract contract Swapper is Deployer, ConfigVelora, ConfigOneInch, ConfigBalanc
         DeploymentTypes.State memory stateData,
         address uniV3Router
     ) private returns (address proxy) {
-        console.log("    > wstEthWbtcSwapper");
         address impl = deployWstEthWbtcSwapperImplementation(uniV3Router);
-        console.log("        Impl: %s", impl);
+        _logDeploy("wstEthWbtcSwapper", impl);
         _recordImplementation(
             stateData,
             "wstEthWbtcSwapper",
@@ -487,9 +482,8 @@ abstract contract Swapper is Deployer, ConfigVelora, ConfigOneInch, ConfigBalanc
         DeploymentTypes.State memory stateData,
         address uniV3Router
     ) private returns (address proxy) {
-        console.log("    > wstEthLbtcSwapper");
         address impl = deployWstEthLbtcSwapperImplementation(uniV3Router);
-        console.log("        Impl: %s", impl);
+        _logDeploy("wstEthLbtcSwapper", impl);
         _recordImplementation(
             stateData,
             "wstEthLbtcSwapper",
