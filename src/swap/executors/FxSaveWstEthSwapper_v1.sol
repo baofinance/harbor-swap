@@ -6,6 +6,7 @@ import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/U
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC4626} from "@openzeppelin/contracts/interfaces/IERC4626.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {ISwapRouter} from "@uniswap/v3-periphery/contracts/interfaces/ISwapRouter.sol";
 
 import {HarborOwnableRoles} from "@bao/HarborOwnableRoles.sol";
 import {TokenHolder_v2} from "@bao/TokenHolder_v2.sol";
@@ -19,17 +20,14 @@ import {ConfigFxSaveWstEthRoute_ETH_mainnet} from "@harbor-swap/config/ConfigFxS
 /// @title FxSaveWstEthSwapper_v1
 /// @notice Composite `ISwapExecutor` for the peg-critical fxSAVE ↔ wstETH routes on Ethereum
 ///         mainnet.
-/// @dev Forward (Harbor `distribute()` Phase 3): fxSAVE → scrvUSD shares → redeem → wstETH.
-///      Reverse (Curve UI path): wstETH → crvUSD → scrvUSD deposit → fxSAVE.
-///      Route constants live in `ConfigFxSaveWstEthRoute_ETH_mainnet`. Only `(FXSAVE, WSTETH)`
-///      and `(WSTETH, FXSAVE)` are supported. The SwapExecutorBase envelope enforces slippage
-///      on the final output; intermediate legs use `min_dy = 0` on Curve calls (consumer
-///      passes oracle-bounded `minAmountOut`) and measure their outputs as balance deltas so
-///      donated balances are never swept through the route.
-///      Curve pools are invoked through `CurveExchangeLib` (low-level `exchange` encoded per
-///      pool family). The two pools on this route are in DIFFERENT Curve families:
-///      fxSAVE/scrvUSD is StableSwap-NG (int128 indices), TricryptoLLAMA is a crypto pool
-///      (uint256 indices).
+/// @dev Forward (Harbor `distribute()` Phase 3): fxSAVE → scrvUSD shares → redeem → crvUSD →
+///      USDC (Curve) → WETH → wstETH (UniV3). Reverse: wstETH → WETH → USDC → crvUSD →
+///      scrvUSD deposit → fxSAVE. Route constants live in
+///      `ConfigFxSaveWstEthRoute_ETH_mainnet`. Only `(FXSAVE, WSTETH)` and `(WSTETH, FXSAVE)`
+///      are supported. The SwapExecutorBase envelope enforces slippage on the final output;
+///      intermediate legs use `min_dy` / `amountOutMinimum = 0` and measure outputs as
+///      balance deltas so donated balances are never swept through the route.
+/// @custom:oz-upgrades-unsafe-allow state-variable-immutable constructor
 // slither-disable-next-line missing-inheritance — false positive: initialize(address,address) matches IHarborYieldEntryInit by coincidence
 contract FxSaveWstEthSwapper_v1 is// solhint-disable-line contract-name-capwords
  ISwapExecutor, HarborOwnableRoles, Initializable, UUPSUpgradeable, TokenHolder_v2, SwapExecutorBase {
@@ -40,7 +38,7 @@ contract FxSaveWstEthSwapper_v1 is// solhint-disable-line contract-name-capwords
     error VaultDepositFailed();
 
     /// @notice Emitted mid-route on every composite swap.
-    /// @param intermediateAmount crvUSD after vault redeem (forward) or after Tricrypto
+    /// @param intermediateAmount crvUSD after vault redeem (forward) or after USDC→crvUSD
     ///        (reverse). The final output is the swap's return value (and the envelope's
     ///        Transfer to the caller), so it is not repeated here.
     event FxSaveWstEthSwap(
@@ -51,9 +49,12 @@ contract FxSaveWstEthSwapper_v1 is// solhint-disable-line contract-name-capwords
         uint256 intermediateAmount
     );
 
+    ISwapRouter public immutable ROUTER;
+
     /// @custom:oz-upgrades-unsafe-allow constructor
-    constructor() {
+    constructor(address uniV3Router_) {
         _disableInitializers();
+        ROUTER = ISwapRouter(uniV3Router_);
     }
 
     function initialize(address deployerOwner_, address pendingOwner_) external initializer {
@@ -65,9 +66,9 @@ contract FxSaveWstEthSwapper_v1 is// solhint-disable-line contract-name-capwords
         address fromToken,
         address toToken,
         uint256 amountIn,
-        uint256 minAmountOutPerUnitIn
+        uint256 minAmountOut
     ) external override nonReentrant returns (uint256 amountOut) {
-        (amountOut, ) = _swapEnvelope(fromToken, toToken, amountIn, minAmountOutPerUnitIn, "");
+        (amountOut, ) = _swapEnvelope(fromToken, toToken, amountIn, minAmountOut, "");
     }
 
     /// @dev Dispatch to the composite legs. The envelope has already pulled `amountIn` of
@@ -120,32 +121,68 @@ contract FxSaveWstEthSwapper_v1 is// solhint-disable-line contract-name-capwords
 
         emit FxSaveWstEthSwap(msg.sender, _fxSave(), _wstEth(), amountIn, crvUsdOut);
 
+        uint256 usdcBefore = IERC20(_usdc()).balanceOf(address(this));
         _curveExchange(
-            _poolTricryptoLlama(),
-            _poolTricryptoLlamaKind(),
-            _pool1ICrvUsd(),
-            _pool1JWstEth(),
+            _poolCrvUsdUsdc(),
+            _poolCrvUsdUsdcKind(),
+            _poolUsdJCrvUsd(),
+            _poolUsdIUsdc(),
             _crvUsd(),
             crvUsdOut,
-            minAmountOut
+            0
         );
+        uint256 usdcOut = IERC20(_usdc()).balanceOf(address(this)) - usdcBefore;
+        // slither-disable-next-line incorrect-equality
+        if (usdcOut == 0) {
+            revert Token.ZeroInputBalance(_usdc());
+        }
+
+        IERC20(_usdc()).forceApprove(address(ROUTER), usdcOut);
+        // slither-disable-next-line unused-return — the envelope measures the output as a balance delta
+        ROUTER.exactInput(
+            ISwapRouter.ExactInputParams({
+                path: _uniPathUsdcToWstEth(),
+                recipient: address(this),
+                deadline: block.timestamp,
+                amountIn: usdcOut,
+                amountOutMinimum: minAmountOut
+            })
+        );
+        IERC20(_usdc()).forceApprove(address(ROUTER), 0);
     }
 
     function _executeWstEthToFxSave(uint256 amountIn, uint256 minAmountOut) private {
-        uint256 crvUsdBefore = IERC20(_crvUsd()).balanceOf(address(this));
+        uint256 usdcBefore = IERC20(_usdc()).balanceOf(address(this));
 
+        IERC20(_wstEth()).forceApprove(address(ROUTER), amountIn);
+        // slither-disable-next-line unused-return — intermediate USDC is measured as a balance delta
+        ROUTER.exactInput(
+            ISwapRouter.ExactInputParams({
+                path: _uniPathWstEthToUsdc(),
+                recipient: address(this),
+                deadline: block.timestamp,
+                amountIn: amountIn,
+                amountOutMinimum: 0
+            })
+        );
+        IERC20(_wstEth()).forceApprove(address(ROUTER), 0);
+
+        uint256 usdcOut = IERC20(_usdc()).balanceOf(address(this)) - usdcBefore;
+        // slither-disable-next-line incorrect-equality
+        if (usdcOut == 0) {
+            revert Token.ZeroInputBalance(_usdc());
+        }
+
+        uint256 crvUsdBefore = IERC20(_crvUsd()).balanceOf(address(this));
         _curveExchange(
-            _poolTricryptoLlama(),
-            _poolTricryptoLlamaKind(),
-            _pool1JWstEth(),
-            _pool1ICrvUsd(),
-            _wstEth(),
-            amountIn,
+            _poolCrvUsdUsdc(),
+            _poolCrvUsdUsdcKind(),
+            _poolUsdIUsdc(),
+            _poolUsdJCrvUsd(),
+            _usdc(),
+            usdcOut,
             0
         );
-
-        // Delta, not full balance: deposit only the crvUSD this leg produced so any
-        // pre-existing (donated) crvUSD balance is left untouched rather than swept out.
         uint256 crvUsdBal = IERC20(_crvUsd()).balanceOf(address(this)) - crvUsdBefore;
         // slither-disable-next-line incorrect-equality
         if (crvUsdBal == 0) {
@@ -195,6 +232,10 @@ contract FxSaveWstEthSwapper_v1 is// solhint-disable-line contract-name-capwords
         return ConfigFxSaveWstEthRoute_ETH_mainnet.WSTETH;
     }
 
+    function _usdc() internal view virtual returns (address) {
+        return ConfigFxSaveWstEthRoute_ETH_mainnet.USDC;
+    }
+
     function _crvUsd() internal view virtual returns (address) {
         return ConfigFxSaveWstEthRoute_ETH_mainnet.CRVUSD;
     }
@@ -211,12 +252,12 @@ contract FxSaveWstEthSwapper_v1 is// solhint-disable-line contract-name-capwords
         return ConfigFxSaveWstEthRoute_ETH_mainnet.POOL_FXSAVE_SCRVUSD_KIND;
     }
 
-    function _poolTricryptoLlama() internal view virtual returns (address) {
-        return ConfigFxSaveWstEthRoute_ETH_mainnet.POOL_TRICRYPTO_LLAMA;
+    function _poolCrvUsdUsdc() internal view virtual returns (address) {
+        return ConfigFxSaveWstEthRoute_ETH_mainnet.POOL_CRVUSD_USDC;
     }
 
-    function _poolTricryptoLlamaKind() internal view virtual returns (CurveExchangeLib.CurvePoolKind) {
-        return ConfigFxSaveWstEthRoute_ETH_mainnet.POOL_TRICRYPTO_LLAMA_KIND;
+    function _poolCrvUsdUsdcKind() internal view virtual returns (CurveExchangeLib.CurvePoolKind) {
+        return ConfigFxSaveWstEthRoute_ETH_mainnet.POOL_CRVUSD_USDC_KIND;
     }
 
     function _pool2IFxSave() internal view virtual returns (int128) {
@@ -227,12 +268,20 @@ contract FxSaveWstEthSwapper_v1 is// solhint-disable-line contract-name-capwords
         return ConfigFxSaveWstEthRoute_ETH_mainnet.POOL2_J_SCRVUSD;
     }
 
-    function _pool1ICrvUsd() internal view virtual returns (int128) {
-        return ConfigFxSaveWstEthRoute_ETH_mainnet.POOL1_I_CRVUSD;
+    function _poolUsdIUsdc() internal view virtual returns (int128) {
+        return ConfigFxSaveWstEthRoute_ETH_mainnet.POOL_USD_I_USDC;
     }
 
-    function _pool1JWstEth() internal view virtual returns (int128) {
-        return ConfigFxSaveWstEthRoute_ETH_mainnet.POOL1_J_WSTETH;
+    function _poolUsdJCrvUsd() internal view virtual returns (int128) {
+        return ConfigFxSaveWstEthRoute_ETH_mainnet.POOL_USD_J_CRVUSD;
+    }
+
+    function _uniPathUsdcToWstEth() internal view virtual returns (bytes memory) {
+        return ConfigFxSaveWstEthRoute_ETH_mainnet.uniPathUsdcToWstEth();
+    }
+
+    function _uniPathWstEthToUsdc() internal view virtual returns (bytes memory) {
+        return ConfigFxSaveWstEthRoute_ETH_mainnet.uniPathWstEthToUsdc();
     }
 
     function _authorizeUpgrade(address) internal override onlyOwner {} // solhint-disable-line no-empty-blocks

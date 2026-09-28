@@ -5,10 +5,11 @@ import {CurveExchangeLib} from "@harbor-swap/executors/CurveExchangeLib.sol";
 
 /// @title ConfigFxSaveWstEthRoute_ETH_mainnet
 /// @notice Mainnet route constants for the fxSAVE ↔ wstETH composite swap used by
-///         `FxSaveWstEthSwapper_v1`. Mirrors the Curve UI path:
-///           wstETH → crvUSD (TricryptoLLAMA) → scrvUSD vault deposit → fxSAVE pool
-///         Harbor `distribute()` uses the reverse: fxSAVE → scrvUSD shares → redeem → wstETH.
-/// @dev Pool coin indices and pool families are re-verified against real mainnet state by
+///         `FxSaveWstEthSwapper_v1`. Leaves Curve once in USD stables and finishes on UniV3:
+///           fxSAVE → scrvUSD → redeem → crvUSD → USDC (Curve StableSwap)
+///             → WETH (Uni 0.05%) → wstETH (Uni 0.01%)
+///         Reverse: wstETH → WETH → USDC → crvUSD → scrvUSD deposit → fxSAVE.
+/// @dev Pool coin indices / Uni fee tiers are re-verified against real mainnet state by
 ///      the fork conformance tests on every fork run (pinned block).
 ///      Update this file and upgrade `FxSaveWstEthSwapper_v1` to change the route.
 // solhint-disable-next-line contract-name-capwords
@@ -18,6 +19,12 @@ library ConfigFxSaveWstEthRoute_ETH_mainnet {
 
     /// @notice Canonical Lido wstETH.
     address internal constant WSTETH = 0x7f39C581F595B53c5cb19bD0b3f8dA6c935E2Ca0;
+
+    /// @notice Wrapped Ether (Uni mid-hop).
+    address internal constant WETH = 0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2;
+
+    /// @notice Native USDC (Curve + Uni mid-hop).
+    address internal constant USDC = 0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48;
 
     /// @notice Curve crvUSD stablecoin.
     address internal constant CRVUSD = 0xf939E0A03FB07F59A73314E73794Be0E57ac1b4E;
@@ -34,18 +41,30 @@ library ConfigFxSaveWstEthRoute_ETH_mainnet {
         .CurvePoolKind
         .StableSwap;
 
-    /// @notice TricryptoLLAMA pool (crvUSD / tBTC / wstETH).
-    address internal constant POOL_TRICRYPTO_LLAMA = 0x2889302a794dA87fBF1D6Db415C1492194663D13;
+    /// @notice Curve StableSwap crvUSD/USDC (coins: 0 = USDC, 1 = crvUSD).
+    address internal constant POOL_CRVUSD_USDC = 0x4DEcE678ceceb27446b35C672dC7d61F30bAD69E;
 
-    /// @notice TricryptoLLAMA is a Curve CRYPTO pool: `exchange` takes uint256 indices, and
-    ///         the int128 selector is silently swallowed by its Vyper `__default__`.
-    CurveExchangeLib.CurvePoolKind internal constant POOL_TRICRYPTO_LLAMA_KIND = CurveExchangeLib.CurvePoolKind.Crypto;
+    CurveExchangeLib.CurvePoolKind internal constant POOL_CRVUSD_USDC_KIND = CurveExchangeLib.CurvePoolKind.StableSwap;
 
     /// @notice fxSAVE/scrvUSD pool: coins(0) = fxSAVE, coins(1) = scrvUSD vault shares.
     int128 internal constant POOL2_I_FXSAVE = 0;
     int128 internal constant POOL2_J_SCRVUSD = 1;
 
-    /// @notice TricryptoLLAMA: coins(0) = crvUSD, coins(1) = tBTC, coins(2) = wstETH.
-    int128 internal constant POOL1_I_CRVUSD = 0;
-    int128 internal constant POOL1_J_WSTETH = 2;
+    /// @notice crvUSD/USDC pool: coins(0) = USDC, coins(1) = crvUSD.
+    int128 internal constant POOL_USD_I_USDC = 0;
+    int128 internal constant POOL_USD_J_CRVUSD = 1;
+
+    /// @notice UniV3 fee tiers on the ETH stack hop.
+    uint24 internal constant UNI_USDC_WETH_FEE = 500; // 0.05%
+    uint24 internal constant UNI_WETH_WSTETH_FEE = 100; // 0.01%
+
+    /// @notice UniV3 multi-hop: USDC → WETH (0.05%) → wstETH (0.01%).
+    function uniPathUsdcToWstEth() internal pure returns (bytes memory) {
+        return abi.encodePacked(USDC, UNI_USDC_WETH_FEE, WETH, UNI_WETH_WSTETH_FEE, WSTETH);
+    }
+
+    /// @notice UniV3 multi-hop: wstETH → WETH (0.01%) → USDC (0.05%).
+    function uniPathWstEthToUsdc() internal pure returns (bytes memory) {
+        return abi.encodePacked(WSTETH, UNI_WETH_WSTETH_FEE, WETH, UNI_USDC_WETH_FEE, USDC);
+    }
 }

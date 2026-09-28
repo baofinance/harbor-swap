@@ -2,8 +2,8 @@
 pragma solidity >=0.8.28 <0.9.0;
 
 // Fork tests for CurveSwapper_v1 against real mainnet Curve pools. Proves the executor can
-// route through a Curve CRYPTO pool (uint256 indices) — TricryptoLLAMA — not only StableSwap
-// (int128) pools, and documents the on-chain family facts the route config depends on.
+// route through a Curve CRYPTO pool (uint256 indices) — crvUSD/WBTC TwoCrypto — not only
+// StableSwap (int128) pools, and documents the on-chain family facts crypto routes depend on.
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {DeploymentTypes} from "@bao-script/deployment/DeploymentTypes.sol";
@@ -11,8 +11,8 @@ import {DeploymentState} from "@bao-script/deployment/DeploymentState.sol";
 
 import {ForkTestBase} from "@harbor-swap-test/fork/ForkTestBase.sol";
 import {CurveSwapper_v1} from "@harbor-swap/executors/CurveSwapper_v1.sol";
+import {CurveExchangeLib} from "@harbor-swap/executors/CurveExchangeLib.sol";
 import {ISwapExecutor} from "@harbor-swap/interfaces/ISwapExecutor.sol";
-import {ConfigFxSaveWstEthRoute_ETH_mainnet as Cfg} from "@harbor-swap/config/ConfigFxSaveWstEthRoute_ETH_mainnet.sol";
 import {Swapper} from "@harbor-swap-script/contracts/Swapper.sol";
 
 interface ICurveCryptoPoolView {
@@ -32,6 +32,14 @@ contract CurveSwapperForkTest is ForkTestBase, Swapper {
         return address(0);
     }
 
+    // Mainnet Curve TwoCrypto crvUSD/WBTC (venue probe — not used by fxSAVE composites).
+    address internal constant POOL_CRVUSD_WBTC = 0xD9FF8396554A0d18B2CFbeC53e1979b7ecCe8373;
+    address internal constant CRVUSD = 0xf939E0A03FB07F59A73314E73794Be0E57ac1b4E;
+    address internal constant WBTC = 0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599;
+    address internal constant POOL_FXSAVE_SCRVUSD = 0xb6E4821c6fCABe32f5F452dfD3Ef20Ce2A3a48E2;
+    int128 internal constant I_CRVUSD = 0;
+    int128 internal constant J_WBTC = 1;
+
     bytes4 constant EXCHANGE_INT128 = 0x3df02124; // exchange(int128,int128,uint256,uint256)
     bytes4 constant EXCHANGE_UINT256 = 0x5b41b908; // exchange(uint256,uint256,uint256,uint256)
 
@@ -49,58 +57,52 @@ contract CurveSwapperForkTest is ForkTestBase, Swapper {
         curveSwapperProxy = _predictAddress("curveSwapper");
     }
 
-    /// @notice On-chain family facts the FxSave/Curve routes depend on: TricryptoLLAMA is a
-    ///         CRYPTO pool (uint256 `exchange`, no int128); the fxSAVE/scrvUSD pool is
-    ///         StableSwap (int128 `exchange`). This is the drift guard that a mis-encoded route
-    ///         violates — a Curve crypto pool does NOT implement the int128 selector.
+    /// @notice On-chain family facts crypto routes depend on: TwoCrypto is CRYPTO (uint256
+    ///         `exchange`, no int128); fxSAVE/scrvUSD is StableSwap (int128 `exchange`).
     function test_fork_curvePoolFamilies_matchExpectedSelectors() public view {
         assertTrue(
-            _implementsSelector(Cfg.POOL_TRICRYPTO_LLAMA, EXCHANGE_UINT256),
-            "TricryptoLLAMA must implement exchange(uint256,...)"
+            _implementsSelector(POOL_CRVUSD_WBTC, EXCHANGE_UINT256),
+            "crvUSD/WBTC TwoCrypto must implement exchange(uint256,...)"
         );
         assertFalse(
-            _implementsSelector(Cfg.POOL_TRICRYPTO_LLAMA, EXCHANGE_INT128),
-            "TricryptoLLAMA must NOT implement exchange(int128,...)"
+            _implementsSelector(POOL_CRVUSD_WBTC, EXCHANGE_INT128),
+            "crvUSD/WBTC TwoCrypto must NOT implement exchange(int128,...)"
         );
         assertTrue(
-            _implementsSelector(Cfg.POOL_FXSAVE_SCRVUSD, EXCHANGE_INT128),
+            _implementsSelector(POOL_FXSAVE_SCRVUSD, EXCHANGE_INT128),
             "fxSAVE/scrvUSD must implement exchange(int128,...)"
         );
     }
 
-    /// @notice A real crvUSD -> wstETH swap through TricryptoLLAMA (a Curve CRYPTO pool) yields
-    ///         wstETH within a tight band of the pool's own get_dy quote. RED against the
-    ///         int128-only encoding (the crypto pool swallows that selector via its Vyper
-    ///         __default__ and no-ops, so amountOut == 0); GREEN once the executor encodes the
-    ///         uint256 `exchange` for crypto pools.
-    function test_fork_swap_crvUsdToWstEth_throughTricrypto() public {
+    /// @notice A real crvUSD -> WBTC swap through TwoCrypto yields WBTC within a tight band of
+    ///         the pool's own get_dy quote. RED against int128-only encoding (crypto pools can
+    ///         swallow that selector via Vyper __default__ and no-op); GREEN with uint256 encoding.
+    function test_fork_swap_crvUsdToWbtc_throughTwoCrypto() public {
         uint256 amountIn = 1000 ether; // 1000 crvUSD
-        deal(Cfg.CRVUSD, address(this), amountIn);
+        deal(CRVUSD, address(this), amountIn);
 
         CurveSwapper_v1(curveSwapperProxy).setRoute(
-            Cfg.CRVUSD,
-            Cfg.WSTETH,
-            Cfg.POOL_TRICRYPTO_LLAMA,
-            Cfg.POOL_TRICRYPTO_LLAMA_KIND,
-            Cfg.POOL1_I_CRVUSD,
-            Cfg.POOL1_J_WSTETH,
+            CRVUSD,
+            WBTC,
+            POOL_CRVUSD_WBTC,
+            CurveExchangeLib.CurvePoolKind.Crypto,
+            I_CRVUSD,
+            J_WBTC,
             false
         );
 
-        uint256 expected = ICurveCryptoPoolView(Cfg.POOL_TRICRYPTO_LLAMA).get_dy(
-            uint256(int256(Cfg.POOL1_I_CRVUSD)),
-            uint256(int256(Cfg.POOL1_J_WSTETH)),
+        uint256 expected = ICurveCryptoPoolView(POOL_CRVUSD_WBTC).get_dy(
+            uint256(int256(I_CRVUSD)),
+            uint256(int256(J_WBTC)),
             amountIn
         );
-        assertGt(expected, 0, "sanity: pool quotes a non-zero wstETH out");
+        assertGt(expected, 0, "sanity: pool quotes a non-zero WBTC out");
 
-        IERC20(Cfg.CRVUSD).approve(curveSwapperProxy, amountIn);
-        uint256 amountOut = ISwapExecutor(curveSwapperProxy).swap(Cfg.CRVUSD, Cfg.WSTETH, amountIn, 0);
+        IERC20(CRVUSD).approve(curveSwapperProxy, amountIn);
+        uint256 amountOut = ISwapExecutor(curveSwapperProxy).swap(CRVUSD, WBTC, amountIn, 0);
 
-        // Executed swap must land the quoted wstETH (small band for the block gap between the
-        // get_dy read and the exchange). RED today: amountOut == 0 (silent no-op).
-        assertApproxEqRel(amountOut, expected, 0.001e18, "wstETH out must match the pool quote");
-        assertEq(IERC20(Cfg.WSTETH).balanceOf(address(this)), amountOut, "wstETH delivered to caller");
-        assertEq(IERC20(Cfg.CRVUSD).balanceOf(curveSwapperProxy), 0, "no crvUSD stranded in adapter");
+        assertApproxEqRel(amountOut, expected, 0.001e18, "WBTC out must match the pool quote");
+        assertEq(IERC20(WBTC).balanceOf(address(this)), amountOut, "WBTC delivered to caller");
+        assertEq(IERC20(CRVUSD).balanceOf(curveSwapperProxy), 0, "no crvUSD stranded in adapter");
     }
 }

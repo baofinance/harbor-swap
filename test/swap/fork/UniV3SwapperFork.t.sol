@@ -66,10 +66,10 @@ contract UniV3SwapperForkTest is ForkTestBase, Swapper {
         // Delta, not absolute: on a mainnet fork the test contract's deterministic address
         // can already hold real WETH.
         uint256 wethBefore = IERC20(WETH).balanceOf(address(this));
-        // The floor is a RATE — output per 1e18 of input — so the quote is converted before the
-        // 1% tolerance is applied to it.
-        uint256 minRate = (((expected * 1 ether) / amountIn) * 99) / 100;
-        uint256 amountOut = ISwapExecutor(uniV3SwapperProxy).swap(USDC, WETH, amountIn, minRate);
+        // The floor is a total in WETH, so the tolerance applies to the quote directly — no
+        // conversion, and no notional per-1e18-of-USDC amount that could never be traded.
+        uint256 minOut = (expected * 99) / 100;
+        uint256 amountOut = ISwapExecutor(uniV3SwapperProxy).swap(USDC, WETH, amountIn, minOut);
 
         assertApproxEqRel(amountOut, expected, 0.001e18, "WETH out must match the Quoter quote");
         assertEq(IERC20(WETH).balanceOf(address(this)) - wethBefore, amountOut, "WETH delivered to caller");
@@ -86,11 +86,10 @@ contract UniV3SwapperForkTest is ForkTestBase, Swapper {
         uint256 expected = IUniV3Quoter(QUOTER).quoteExactInput(abi.encodePacked(USDC, FEE, WETH), amountIn);
 
         IERC20(USDC).approve(uniV3SwapperProxy, amountIn);
-        // The floor is a RATE — output per 1e18 of input — so the quote is converted before being
-        // pushed 1% above what the pool will actually pay.
-        uint256 rateTooHigh = (((expected * 1 ether) / amountIn) * 101) / 100;
+        // The floor is a total in WETH, pushed 1% above what the pool will actually pay.
+        uint256 minTooHigh = (expected * 101) / 100;
 
         vm.expectRevert(bytes("Too little received"));
-        ISwapExecutor(uniV3SwapperProxy).swap(USDC, WETH, amountIn, rateTooHigh);
+        ISwapExecutor(uniV3SwapperProxy).swap(USDC, WETH, amountIn, minTooHigh);
     }
 }

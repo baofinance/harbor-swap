@@ -181,10 +181,10 @@ contract BalancerSwapperTest is BaoTest, TokenHolderTestBase, SwapExecutorTestBa
         _mintAndApprove(fromToken, balancerSwapperProxy, amountIn);
         // Hoisted: an argument sub-expression making an external call would steal the
         // expectRevert binding.
-        uint256 rateTooHigh = _expectedRatePerUnitIn() + 1;
+        uint256 minTooHigh = _expectedOut(amountIn) + 1;
 
         vm.expectRevert(bytes("BAL#507"));
-        ISwapExecutor(balancerSwapperProxy).swap(fromToken, toToken, amountIn, rateTooHigh);
+        ISwapExecutor(balancerSwapperProxy).swap(fromToken, toToken, amountIn, minTooHigh);
     }
 
     /// @notice A forced Vault revert bubbles unwrapped (typed call — no wrapper error).

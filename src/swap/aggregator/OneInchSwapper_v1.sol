@@ -25,7 +25,8 @@ import {SwapExecutorBase} from "@harbor-swap/SwapExecutorBase.sol";
 ///      - Reentrancy protected (transient storage guard).
 ///      - Stateless beyond the router immutable: open access is safe because the adapter
 ///        only ever spends `msg.sender`'s pre-approved balance and returns proceeds to
-///        `msg.sender`. Authorization gating lives at the consumer.
+///        `msg.sender`. Authorization gating lives at the consumer (e.g.
+///        `HarborYield_v1.redistribute` role gate).
 ///      - `routerData` must be at least 4 bytes and start with `OneInchV6Selectors.SWAP`
 ///        (1inch v6 `swap(address,tuple,bytes)`). Other router entrypoints are rejected.
 ///        The selector check is defence-in-depth; the envelope's balance-delta accounting
@@ -63,12 +64,12 @@ contract OneInchSwapper_v1 is// solhint-disable-line contract-name-capwords
         address fromToken,
         address toToken,
         uint256 amountIn,
-        uint256 minAmountOutPerUnitIn,
+        uint256 minAmountOut,
         bytes calldata routerData
     ) external override nonReentrant returns (uint256 amountOut) {
         _validateRouterData(routerData);
         uint256 refundedIn;
-        (amountOut, refundedIn) = _swapEnvelope(fromToken, toToken, amountIn, minAmountOutPerUnitIn, routerData);
+        (amountOut, refundedIn) = _swapEnvelope(fromToken, toToken, amountIn, minAmountOut, routerData);
         emit AggregatorSwap(msg.sender, fromToken, toToken, amountIn, amountOut, refundedIn);
     }
 

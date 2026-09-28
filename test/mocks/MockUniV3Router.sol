@@ -37,10 +37,6 @@ contract MockUniV3Router {
     }
 
     function exactInput(ISwapRouter.ExactInputParams calldata params) external returns (uint256 amountOut) {
-        if (shouldRevert) {
-            revert("MockUniV3Router: forced revert");
-        }
-
         // Infer tokenIn from path (first 20 bytes) and tokenOut (last 20 bytes).
         bytes memory path = params.path;
         address tokenIn;
@@ -49,20 +45,35 @@ contract MockUniV3Router {
             tokenIn := shr(96, mload(add(path, 32)))
             tokenOut := shr(96, mload(add(add(path, 32), sub(mload(path), 20))))
         }
+        return _swap(tokenIn, tokenOut, params.recipient, params.amountIn, params.amountOutMinimum);
+    }
 
-        IERC20(tokenIn).transferFrom(msg.sender, address(this), params.amountIn);
-        amountOut = (params.amountIn * rate) / 1e18;
-        if (honourMin) {
-            require(amountOut >= params.amountOutMinimum, "Too little received");
+    function exactInputSingle(ISwapRouter.ExactInputSingleParams calldata params) external returns (uint256 amountOut) {
+        return _swap(params.tokenIn, params.tokenOut, params.recipient, params.amountIn, params.amountOutMinimum);
+    }
+
+    function _swap(
+        address tokenIn,
+        address tokenOut,
+        address recipient,
+        uint256 amountIn,
+        uint256 amountOutMinimum
+    ) private returns (uint256 amountOut) {
+        if (shouldRevert) {
+            revert("MockUniV3Router: forced revert");
         }
-        MockERC20(tokenOut).mint(params.recipient, amountOut);
+
+        IERC20(tokenIn).transferFrom(msg.sender, address(this), amountIn);
+        amountOut = (amountIn * rate) / 1e18;
+        if (honourMin) {
+            require(amountOut >= amountOutMinimum, "Too little received");
+        }
+        MockERC20(tokenOut).mint(recipient, amountOut);
 
         if (reentrantTarget != address(0)) {
             // solhint-disable-next-line avoid-low-level-calls
             (bool ok, bytes memory ret) = reentrantTarget.call(reentrantCalldata);
             if (!ok) {
-                // Bubble the inner revert unchanged so tests can pin the exact error the
-                // re-entered contract raised (e.g. the reentrancy guard's).
                 // solhint-disable-next-line no-inline-assembly
                 assembly {
                     revert(add(ret, 32), mload(ret))

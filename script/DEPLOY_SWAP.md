@@ -15,10 +15,10 @@ deployed with `new` in-script; UUPS proxies are always factory-deployed at deter
 
 | Repo | Delivers |
 |------|----------|
-| **harbor-swap** (this repo) | `Swapper_v1`, direct executors, `OneInchSwapper_v1`, deploy scripts, mock-based unit tests |
+| **harbor-swap** (this repo) | `Swapper_v1`, direct executors, `VeloraSwapper_v1`, `OneInchSwapper_v1`, deploy scripts |
 | [baofinance/harbor](https://github.com/baofinance/harbor) | Phase 1a — Minter, SP, SPM; `HarborDeployer`, BaoFactory (`@harbor-script/`) |
 | [baofinance/harbor-price-aggregators](https://github.com/baofinance/harbor-price-aggregators) | Phase 1b — oracles at CREATE3 addresses |
-| **Harbor Yield consumer repo** (separate) | `HarborYield_v1`, ACs, equiv vaults; imports `@harbor-swap/`; fork integration tests |
+| **Harbor Yield consumer repo** (separate) | `HarborYield_v1`, ACs, equiv vaults; imports `@harbor-swap/`; full-stack HY fork/integration tests |
 
 Harbor Yield wiring (`_configureSwapRoutes` and keeper `REDISTRIBUTOR_ROLE` grants)
 lives in the consumer repo. This runbook covers swap-stack deploy and route configuration;
@@ -99,8 +99,14 @@ HY peg instances on the same network):
 | `uniV3Swapper` | `UniV3Swapper_v1` |
 | `curveSwapper` | `CurveSwapper_v1` |
 | `balancerSwapper` | `BalancerSwapper_v1` |
+| `veloraSwapper` | `VeloraSwapper_v1` |
 | `oneInchSwapper` | `OneInchSwapper_v1` |
 | `fxSaveWstEthSwapper` | `FxSaveWstEthSwapper_v1` (ETH mainnet fxSAVE ↔ wstETH composite) |
+| `fxSaveWbtcSwapper` | `FxSaveWbtcSwapper_v1` (fxSAVE ↔ WBTC) |
+| `fxSaveLbtcSwapper` | `FxSaveLbtcSwapper_v1` (fxSAVE ↔ LBTC) |
+| `fxSaveEurcSwapper` | `FxSaveEurcSwapper_v1` (fxSAVE → EURC) |
+| `wstEthWbtcSwapper` | `WstEthWbtcSwapper_v1` (wstETH → WBTC) |
+| `wstEthLbtcSwapper` | `WstEthLbtcSwapper_v1` (wstETH → LBTC) |
 
 Per-peg HY uses `{pegKey}::harborYield`, `{pegKey}::beacon`, etc. — configured in the
 Harbor Yield consumer repo.
@@ -121,9 +127,25 @@ BaoFactory proxy → v1 upgrade. Swap unit tests under `test/swap/` call the sam
 `deploySwapper` / `deployUniV3Swapper` paths as production via CREATE3. Override
 `deploySwapperImplementation()` to inject `MockSwapper` without bypassing the factory.
 
-**Test scope in this repo:** mock-based unit tests only (`forge test --match-path "test/swap/**"`).
-Mainnet fork integration (full ETH stack + mocked oracles) lives in the Harbor Yield consumer
-repo.
+**Test scope in this repo:** mock-based unit tests under `test/swap/` plus pinned mainnet
+fork tests under `test/swap/fork/` (require `MAINNET_RPC_URL`):
+
+```bash
+yarn test --match-path "test/swap/**"                                          # unit + fork; FAILS without MAINNET_RPC_URL
+yarn test --match-path "test/swap/**" --no-match-path "test/swap/fork/**"      # unit only (Swapper + aggregators + executors)
+```
+
+The fork tests do not skip when `MAINNET_RPC_URL` is unset — `ForkTestBase._forkMainnet` calls
+`vm.createSelectFork(vm.rpcUrl("mainnet"))` unguarded, and `foundry.toml` resolves the `mainnet`
+endpoint from that variable, so they fail. That is deliberate: a fork test that quietly skips
+reports green while proving nothing. Set the variable (see `.env.example`) or match a path that
+excludes `test/swap/fork/`.
+
+Full ETH-stack HarborYield integration (registry + oracles + `HarborYield_v1`) lives in the
+Harbor Yield consumer repo. That repo must adopt the current `ISwapExecutor` /
+`IAggregatorSwapper` floor (`minAmountOut` = whole-order `toToken` amount, not a per-1e18
+rate) and `ISwapper.RouteInfo` (`amountOut` / `quoted` / `routeCostRatio`, with `amountIn`
+passed into route queries) — see § Consumer wiring below.
 
 ---
 
@@ -132,7 +154,7 @@ repo.
 | Scenario | Path | Entrypoint | When |
 |----------|------|------------|------|
 | **Urgent / peg-critical** | Direct executor | `HarborYield_v1.distribute()` → `ISwapExecutor.swap` | Residual wCOLn routing during AC distribution; must be predictable gas, no off-chain router dependency |
-| **Low-urgency / long-tail** | Aggregator (1inch v6) | `HarborYield_v1.redistribute` | Scheduled rebalances, illiquid pairs, multi-pool Curve/Balancer chains, exotic venues |
+| **Low-urgency / long-tail** | Aggregator (Velora Augustus v6.2) | `HarborYield_v1.redistribute` | Scheduled rebalances, illiquid pairs, multi-pool Curve/Balancer chains, exotic venues |
 
 **Rule:** `distribute()` never calls the aggregator. Untrusted keeper calldata stays out of
 the hot path. `redistribute` unwinds source-vault shares, swaps through the keeper's aggregator, and winds the
@@ -147,12 +169,13 @@ All swap proxies share the deploy script salt prefix (e.g. `harbor_v1::eth::`) a
 
 | Salt key | Contract | Purpose |
 |----------|----------|---------|
-| `swapper` | `Swapper_v1` | Route registry: `(from, to) → {executor, feeRatio}` |
+| `swapper` | `Swapper_v1` | Route registry: `(from, to) → {executor, routeCostRatio}` |
 | `uniV3Swapper` | `UniV3Swapper_v1` | Uniswap v3 `exactInput` (single- or multi-hop) |
 | `curveSwapper` | `CurveSwapper_v1` | Curve StableSwap `exchange` / `exchange_underlying` |
 | `balancerSwapper` | `BalancerSwapper_v1` | Balancer V2 Vault single-swap |
+| `veloraSwapper` | `VeloraSwapper_v1` | Velora Augustus v6.2 fixed-router adapter (aggregator only) |
 | `oneInchSwapper` | `OneInchSwapper_v1` | 1inch v6 fixed-router adapter (aggregator only) |
-| `fxSaveWstEthSwapper` | `FxSaveWstEthSwapper_v1` | fxSAVE → wstETH composite (Curve ×2 + scrvUSD redeem; ETH mainnet) |
+| `fxSaveWstEthSwapper` | `FxSaveWstEthSwapper_v1` | fxSAVE ↔ wstETH composite (Curve stables + UniV3 ETH hop; ETH mainnet) |
 
 Deploy helpers live in [`script/src/contracts/Swapper.sol`](src/contracts/Swapper.sol).
 
@@ -162,6 +185,7 @@ Chain constants:
 |----------|---------|------|
 | Uniswap v3 SwapRouter (mainnet) | `0xE592427A0AEce92De3Edee1F18E0157C05861564` | [`ConfigSwap_ETH_mainnet.sol`](src/config/ConfigSwap_ETH_mainnet.sol) |
 | Balancer V2 Vault (all major chains) | `0xBA12222222228d8Ba445958a75a0704d566BF2C8` | [`ConfigBalancer.sol`](src/config/ConfigBalancer.sol) |
+| Velora Augustus v6.2 (same address on all Velora chains) | `0x6A000F20005980200259B80c5102003040001068` | [`ConfigVelora.sol`](src/config/ConfigVelora.sol) |
 | 1inch AggregationRouterV6 (CREATE2, all major chains) | `0x111111125421cA6dc452d289314280a0f8842A65` | [`ConfigOneInch.sol`](src/config/ConfigOneInch.sol) |
 
 Curve has **no canonical router** — each pair points at a specific pool contract.
@@ -174,7 +198,7 @@ Swap deployment is orchestrated by [`HarborSwapDeployStack`](src/HarborSwapDeplo
 
 | Script | When | What it deploys |
 |--------|------|-----------------|
-| [`Deploy_Swap.s.sol`](../Deploy_Swap.s.sol) | Swap stack only, shared infra before any HY peg | Registry + UniV3 + Curve + Balancer + 1inch + fxSAVE→wstETH |
+| [`Deploy_Swap.s.sol`](../Deploy_Swap.s.sol) | Swap stack only, shared infra before any HY peg | Registry + UniV3 + Curve + Balancer + Velora + 1inch + fxSAVE→wstETH |
 
 **Standalone swap stack** (this repo):
 
@@ -188,14 +212,27 @@ which runs:
 ```
 Phase 2a — harbor-swap deploy script (BaoFactory operator)
   1. _setSaltPrefix(saltPrefix)
-  2. deploySwapStack(state, fullOpts)  → swapper + uniV3 + curve + balancer + oneInch
-  3. deployFxSaveWstEthSwapper(state)  → fxSAVE ↔ wstETH composite executor
-  4. configureFxSaveWstEthRoutes()     → registry Layer 2 for both directions
+  2. deploySwapStack(state, fullOpts)  → swapper + uniV3 + curve + balancer + velora + oneInch
+  3. deployHyPegEquivExecutors(state) → fxSAVE/wstETH/BTC/EURC composites
+  4. configureHyPegEquivRoutes()      → registry Layer 2 (+ UniV3 wstETH→EURC path)
   5. flush + _transferAllOwnerships()  → Safe receives proxy ownership
 ```
 
 Optional executors in `deploySwapStack` are controlled by `SwapDeployOptions`
-(`deployCurve`, `deployBalancer`, `deployOneInch`). `Deploy_Swap` enables all three.
+(`deployCurve`, `deployBalancer`, `deployVelora`, `deployOneInch`). `Deploy_Swap` enables all four.
+Use `_veloraAggregatorDeployOptions()` when only the primary aggregator is needed.
+
+**hy peg-equiv direct routes** (into peg-equiv; reverse/remint via Velora `redistribute`):
+
+| Pair | Executor |
+|------|----------|
+| fxSAVE ↔ wstETH | `FxSaveWstEthSwapper_v1` |
+| fxSAVE ↔ WBTC | `FxSaveWbtcSwapper_v1` |
+| fxSAVE ↔ LBTC | `FxSaveLbtcSwapper_v1` |
+| fxSAVE → EURC | `FxSaveEurcSwapper_v1` |
+| wstETH → WBTC | `WstEthWbtcSwapper_v1` (UniV3 via WETH) |
+| wstETH → LBTC | `WstEthLbtcSwapper_v1` (UniV3 via WETH→WBTC) |
+| wstETH → EURC | `UniV3Swapper_v1` (WETH → USDC → EURC) |
 
 **Harbor Yield consumer repo** then deploys HY infrastructure (Phase 2b) and wires routes
 via `_configureSwapRoutes` — typically registry + UniV3 only on default deploy, or the full
@@ -230,13 +267,15 @@ Clear a route: UniV3 `setPath(from, to, "")`; Curve `setRoute(..., pool=0, ...)`
 ### Layer 2 — Registry
 
 ```solidity
-ISwapperConfig(swapper).setRoute(fromToken, toToken, executorProxy, feeRatio);
+ISwapperConfig(swapper).setRoute(fromToken, toToken, executorProxy, routeCostRatio);
 ```
 
 - `executorProxy` = CREATE3 address of the executor (e.g. `_predictAddress("uniV3Swapper")`).
-- `feeRatio` = effective swap fee as 1e18-scaled ratio (e.g. `3e15` = 0.3%). HarborYield
-  reads this in `distribute()` as the minting threshold — set it **≥** the real pool fee so
-  residual swaps only run when economically sensible.
+- `routeCostRatio` = expected route cost (fee + expected slippage) as a 1e18-scaled ratio
+  (e.g. `3e15` = 0.3%). Surfaced on `RouteInfo.routeCostRatio`. HarborYield reads this in
+  `distribute()` as the minting threshold — configure it to cover the real pool fee **and**
+  expected slippage (do not use the pool fee alone), so residual swaps only run when
+  economically sensible.
 - Pass `executor = address(0)` to remove a registry entry.
 
 ### Example — ETH peg fxSAVE ↔ wstETH (FxSaveWstEthSwapper)
@@ -251,12 +290,12 @@ address fxSaveWstEth = _predictAddress("fxSaveWstEthSwapper");
 
 // Layer 2 (registry) — `Deploy_Swap.configureFxSaveWstEthRoutes()` on standalone deploy,
 // or equivalent in consumer _configureSwapRoutes:
-ISwapperConfig(swapper).setRoute(FXSAVE, WSTETH, fxSaveWstEth, FXSAVE_TO_WSTETH_FEE_RATIO);
-ISwapperConfig(swapper).setRoute(WSTETH, FXSAVE, fxSaveWstEth, WSTETH_TO_FXSAVE_FEE_RATIO);
+ISwapperConfig(swapper).setRoute(FXSAVE, WSTETH, fxSaveWstEth, FXSAVE_TO_WSTETH_ROUTE_COST_RATIO);
+ISwapperConfig(swapper).setRoute(WSTETH, FXSAVE, fxSaveWstEth, WSTETH_TO_FXSAVE_ROUTE_COST_RATIO);
 ```
 
-Fee constants: [`ConfigSwap_ETH_mainnet`](src/config/ConfigSwap_ETH_mainnet.sol)
-(`FXSAVE_TO_WSTETH_FEE_RATIO`, `WSTETH_TO_FXSAVE_FEE_RATIO`). On pegs where wrapped
+Route-cost constants: [`ConfigSwap_ETH_mainnet`](src/config/ConfigSwap_ETH_mainnet.sol)
+(`FXSAVE_TO_WSTETH_ROUTE_COST_RATIO`, `WSTETH_TO_FXSAVE_ROUTE_COST_RATIO`). On pegs where wrapped
 collateral differs from mainnet `FXSAVE`, use the peg's wrapped collateral address instead of
 `FXSAVE` in `setRoute` (executor impl still uses mainnet venue constants).
 
@@ -267,13 +306,14 @@ and baked into the implementation.
 **Upgrading `FxSaveWstEthSwapper_v1`:** edit the config library + deploy a new implementation,
 then UUPS-upgrade the `fxSaveWstEthSwapper` proxy (or deploy a new proxy and update
 `Swapper_v1.setRoute`). Re-run fork validation on the composite path before mainnet execution.
-Successful swaps emit `FxSaveWstEthSwap(caller, from, to, amountIn, intermediateAmount, amountOut)`
-where `intermediateAmount` is crvUSD after vault redeem (forward) or after Tricrypto (reverse).
+Successful swaps emit `FxSaveWstEthSwap(caller, from, to, amountIn, intermediateAmount)`
+where `intermediateAmount` is crvUSD after vault redeem (forward) or after USDC→crvUSD
+(reverse).
 
-**Slippage note (intentional tradeoff):** intermediate Curve legs use `min_dy = 0`; only final
-wstETH output is bounded by HarborYield's oracle floor (`minAmountOut`). Sandwich risk on
-intermediate legs is accepted for this peg-critical route. Monitor pool liquidity for large
-residual fxSAVE during `distribute()` Phase 3; consider keeper/aggregator rebalances for
+**Slippage note (intentional tradeoff):** intermediate Curve / Uni legs use a zero venue
+floor; only final output is bounded by HarborYield's oracle floor (`minAmountOut`). Sandwich
+risk on intermediate legs is accepted for this peg-critical route. Monitor pool liquidity for
+large residual fxSAVE during `distribute()` Phase 3; consider keeper/aggregator rebalances for
 large notionals.
 
 ### Example — generic UniV3 pair (Layer 1 + Layer 2)
@@ -282,7 +322,7 @@ For pairs wired through `UniV3Swapper_v1`:
 
 ```solidity
 // Layer 2 (registry):
-ISwapperConfig(swapper).setRoute(fromToken, toToken, uniV3Swapper, feeRatio);
+ISwapperConfig(swapper).setRoute(fromToken, toToken, uniV3Swapper, routeCostRatio);
 
 // Layer 1 (UniV3 path) — governance / post-deploy:
 UniV3Swapper_v1(uniV3Swapper).setPath(
@@ -296,6 +336,12 @@ Until Layer 1 is set, `getRoutesFrom` / `getRoute` return the executor but
 `UniV3Swapper.swap` reverts with `NoPathConfigured`.
 
 ### Consumer wiring pattern
+
+**Harbor Yield checklist (consumer repo, not harbor-swap):** when bumping `@harbor-swap`,
+confirm HY calls `ISwapExecutor.swap` / `IAggregatorSwapper.swap` with a whole-order
+`minAmountOut` in `toToken` units, and that route queries use `RouteInfo.amountOut` /
+`quoted` / `routeCostRatio` with `amountIn` supplied. Do not keep a legacy per-1e18 rate
+floor against this interface.
 
 The Harbor Yield consumer repo overrides a virtual `_configureSwapRoutes` hook. Typical
 structure:
@@ -329,59 +375,196 @@ consumer reaches it only through `HarborYield_v1.redistribute`, which takes the 
 keeper's `routerData` as call parameters.
 
 ```solidity
-// 1. Deploy adapter (once per network, shared across pegs) — harbor-swap:
-deployOneInchSwapper(state);
-address oneInch = _predictAddress("oneInchSwapper");
+// 1. Deploy primary aggregator (once per network, shared across pegs) — harbor-swap:
+deployVeloraSwapper(state);
+address velora = _predictAddress("veloraSwapper");
+
+// Optional: deploy 1inch as a secondary adapter when needed:
+// deployOneInchSwapper(state);
+// address oneInch = _predictAddress("oneInchSwapper");
 
 // 2. Grant keeper role (per HY peg instance) — consumer repo:
 HarborYield_v1(hy).grantRoles(keeperAddress, HarborYield_v1(hy).REDISTRIBUTOR_ROLE());
 ```
 
-There is no `setAggregatorSwapper` step — HY holds no aggregator address. The keeper passes the adapter (e.g.
-the predicted `oneInch` address) on each `redistribute` call, so multiple third-party adapters can coexist
-without any HY change.
+There is no `setAggregatorSwapper` step — HY holds no aggregator address. The keeper passes whichever
+adapter it used to build `routerData` (default: `velora`; optional: `oneInch`) on each `redistribute` call, so multiple
+third-party adapters can coexist without any HY change.
 
-**Authorization model (intentional tradeoff):** `OneInchSwapper_v1.swap` is open-access — it only spends
+**Authorization model (intentional tradeoff):** aggregator `swap` is open-access — it only spends
 `msg.sender`'s pre-approved balance. The role gate (`REDISTRIBUTOR_ROLE`) lives on `HarborYield_v1.redistribute`,
 not on the adapter.
 
-**Keeper call:** the keeper names the tokens, the adapter, and the route on a single `redistribute` call (see
-the Harbor Yield keeper runbook for the full off-chain workflow):
+**Keeper call:** the keeper names the tokens, the adapter, and the route on a single `redistribute` call:
 
 ```solidity
 HarborYield_v1(hy).redistribute(
     fromVault, fromToken, toVault, toToken,
-    shares,        // source-vault shares to move (HY unwinds them to fromToken)
-    minToAssets,   // floor on the target landing — the strict-vs-partial lever
-    oneInch,       // the aggregator adapter for the swap leg
-    routerData     // opaque 1inch v6 calldata from off-chain pathfinder
+    shares,
+    minToAssets,
+    velora,        // or oneInch — must match how routerData was built
+    routerData
 );
 ```
 
-Requirements:
+**Velora `routerData`:** Market API (`GET /prices` → `POST /transactions/:chainId`). Allowlist:
+`VeloraV62Selectors.SWAP_EXACT_AMOUNT_IN` (`0xe3ead59e`) or `SWAP_EXACT_AMOUNT_OUT` (`0x7f457675`).
+Router: `0x6A000F…1068` ([`VeloraV62Selectors.sol`](../src/swap/aggregator/VeloraV62Selectors.sol)).
+
+**1inch `routerData`:** Swap API / Pathfinder (requires dev-portal KYC). Allowlist:
+`OneInchV6Selectors.SWAP` (`0x07ed2379`). Router: `0x1111…2A65`
+([`OneInchV6Selectors.sol`](../src/swap/aggregator/OneInchV6Selectors.sol)).
+
+Shared requirements:
 
 - HY sources the swap input by unwinding `shares` of `fromVault` down to `fromToken` inside the call — it needs
   no idle balance.
-- `routerData` must target the immutable router baked into `OneInchSwapper_v1` (`0x1111…2A65` on production).
-  Building calldata is an off-chain concern (1inch Swap API / Pathfinder).
-- **Allowed calldata (Option A):** first four bytes must be `OneInchV6Selectors.SWAP` (`0x07ed2379`,
-  `swap(address,tuple,bytes)`). Other v6 entrypoints (`unoswap`, `clipperSwap`, `fillOrder`, …) revert with
-  `DisallowedRouterSelector`. Expand the allowlist in
-  [`OneInchV6Selectors.sol`](../src/swap/aggregator/OneInchV6Selectors.sol) only after ops confirms keeper usage.
+- `routerData` must target the immutable router baked into the named adapter. Building calldata is off-chain.
 - Slippage is bounded by `redistribute`'s end-to-end value floor (`minToAssets` plus the vault's `swapSlippage`);
   HY passes `minAmountOut = 0` to the adapter because the floor is the real guard. A malicious or wrong route
   can't drain HY — the atomic call reverts if the landed value misses the floor.
 - Disable the aggregator path for a keeper by revoking `REDISTRIBUTOR_ROLE`; there is no on-chain aggregator
   switch to flip.
 
-**Upgrading `OneInchSwapper_v1`:** deploy a new implementation via `Swapper.sol` and UUPS-upgrade the existing
-`oneInchSwapper` proxy (the router immutable is fixed at implementation construction time). Because the keeper
-names the adapter per call, a new adapter at a different address simply becomes another address the keeper can
-pass — no HY change.
+**Upgrading an adapter:** deploy a new implementation via `Swapper.sol` and UUPS-upgrade the existing proxy.
+Because the keeper names the adapter per call, a new adapter at a different address simply becomes another
+address the keeper can pass — no HY change.
 
 ---
 
-## 6. Mainnet pool caveats
+## 6. Simulate new routes
+
+Use this before adding a hy peg-equiv path (or changing venues). Goal: prove the route is liquid
+at the intended rebalance size, pick Curve vs Uni (or aggregator), then set `routeCostRatio`.
+
+### When to simulate
+
+| Path type | Typical venue | Simulation goal |
+|-----------|---------------|-----------------|
+| **Distribute** (urgent, fixed) | Direct / composite executor | Worst-case fill at keeper size vs oracle fair |
+| **Redistribute** (scheduled) | Velora / 1inch | Prefer aggregator unless a dedicated path is clearly better |
+
+### Measure scripts (routeCostRatio)
+
+Re-derive fees + size impact from live mainnet and print constants for
+[`ConfigSwap_ETH_mainnet.sol`](src/config/ConfigSwap_ETH_mainnet.sol):
+
+```bash
+MAINNET_RPC_URL=https://... yarn measure:route-cost:eth   # fxSAVE ↔ wstETH
+MAINNET_RPC_URL=https://... yarn measure:route-cost:btc   # fxSAVE/wstETH → WBTC/LBTC
+MAINNET_RPC_URL=https://... yarn measure:route-cost:eur   # fxSAVE/wstETH → EURC
+yarn measure:route-cost:usd                               # stub until a USD composite exists
+yarn measure:route-cost                                   # alias → eth (back-compat)
+```
+
+Optional pinned block: `yarn measure:route-cost:eth 25682862`. Scripts read addresses from the
+route config libraries under `src/swap/config/`. Needs `cast` + `python3`.
+
+### Checklist
+
+1. **Identify legs** — tokens, pools/fee tiers, coin indices or Uni path bytes.
+2. **Check depth** — Curve `balances(i)`; Uni factory `getPool` + token balances / liquidity.
+3. **Quote at size** — intended notional (e.g. 15k fxSAVE, 10 wstETH) via `get_dy` / Uni Quoter.
+4. **Quote at epsilon** — same route at ~1 token; scale to size → **size impact** alone.
+5. **Fair USD** — Chainlink (or vault/oracle) for input and output; report loss vs fair and vs book TVL.
+6. **Reject thin venues** — if one hop dominates loss (e.g. empty wrap pool), switch venue before coding.
+7. **Set `routeCostRatio`** — fee + expected slippage via measure scripts → config constants.
+8. **Ship** — config library + executor (or Uni `setPath`), fork pool-existence test, `yarn sizes`.
+
+### Quote patterns (`MAINNET_RPC_URL` / `foundry.toml` `mainnet`)
+
+Requires `cast` and a working mainnet RPC. Strip scientific-notation suffixes with `awk '{print $1}'`.
+Addresses below match the route configs; prefer reading them from those files when scripting.
+
+**Quoter / factory (mainnet):**
+
+```text
+QUOTER_V1      = 0xb27308f9F90D607463bb33eA1BeBb41C27CE5AB6
+UNIV3_FACTORY  = 0x1F98431c8aD98523631AE4a59f267346ea31F984
+```
+
+**fxSAVE → wstETH (current composite — Curve stables then Uni ETH hop):**
+
+```bash
+# 1) fxSAVE → scrvUSD shares
+cast call $POOL_FXSAVE_SCRVUSD "get_dy(int128,int128,uint256)(uint256)" 0 1 $AMOUNT_FXSAVE --rpc-url mainnet
+
+# 2) shares → crvUSD
+cast call $SCRVUSD_VAULT "previewRedeem(uint256)(uint256)" $SHARES --rpc-url mainnet
+
+# 3) crvUSD → USDC (StableSwap: i=1 crvUSD, j=0 USDC)
+cast call $POOL_CRVUSD_USDC "get_dy(int128,int128,uint256)(uint256)" 1 0 $CRVUSD --rpc-url mainnet
+
+# 4) USDC → WETH (0.05%) → wstETH (0.01%) — path from ConfigFxSaveWstEthRoute.uniPathUsdcToWstEth()
+cast call $QUOTER_V1 "quoteExactInput(bytes,uint256)(uint256)" $PATH_USDC_TO_WSTETH $USDC_OUT --rpc-url mainnet
+```
+
+**fxSAVE → WBTC (Curve stables + Uni USDC/WBTC 0.05%):**
+
+```bash
+# 1–2) same as fxSAVE → wstETH through crvUSD
+cast call $POOL_FXSAVE_SCRVUSD "get_dy(int128,int128,uint256)(uint256)" 0 1 $AMOUNT_FXSAVE --rpc-url mainnet
+cast call $SCRVUSD_VAULT "previewRedeem(uint256)(uint256)" $SHARES --rpc-url mainnet
+# 3) crvUSD → USDC (StableSwap: i=1 crvUSD, j=0 USDC)
+cast call $POOL_CRVUSD_USDC "get_dy(int128,int128,uint256)(uint256)" 1 0 $CRVUSD --rpc-url mainnet
+# 4) USDC → WBTC (UniV3 0.05%)
+cast call $QUOTER_V1 "quoteExactInputSingle(address,address,uint24,uint256,uint160)(uint256)" \
+  $USDC $WBTC 500 $USDC_OUT 0 --rpc-url mainnet
+```
+
+**WBTC → LBTC (UniV3 0.01%):**
+
+```bash
+cast call $QUOTER_V1 "quoteExactInputSingle(address,address,uint24,uint256,uint160)(uint256)" \
+  $WBTC $LBTC 100 $AMOUNT_WBTC 0 --rpc-url mainnet
+```
+
+**wstETH → WBTC / LBTC (UniV3 multi-hop via WETH):**
+
+```bash
+# path = abi.encodePacked(wstETH, uint24(100), WETH, uint24(500), WBTC)
+# optional + uint24(100), LBTC for three-hop
+cast call $QUOTER_V1 "quoteExactInput(bytes,uint256)(uint256)" $PATH_BYTES $AMOUNT_WSTETH --rpc-url mainnet
+```
+
+**fxSAVE → EURC:**
+
+```bash
+# after crvUSD (same as above) → USDC, then:
+cast call $QUOTER_V1 "quoteExactInputSingle(address,address,uint24,uint256,uint160)(uint256)" \
+  $USDC $EURC 500 $USDC_OUT 0 --rpc-url mainnet
+```
+
+Confirm pools exist:
+
+```bash
+cast call $UNIV3_FACTORY "getPool(address,address,uint24)(address)" $TOKEN_A $TOKEN_B $FEE --rpc-url mainnet
+```
+
+### How to report loss
+
+| Metric | Meaning |
+|--------|---------|
+| **vs fair** | Output USD ÷ input fair USD − 1 (oracle / spot-scaled epsilon) |
+| **size impact** | Actual out ÷ (epsilon out × size/epsilon) − 1 |
+| **vs book TVL** | Absolute USD loss ÷ market TVL (e.g. $500k mint) — bps drag on the whole book |
+| **hy↔ha rate** | If rate \(R\) scales with NAV: \(R_\text{new} = R \times (1 - L/\text{TVL})\) |
+
+Document the chosen venues in the route config library natspec and the hy peg-equiv table in §3.
+
+### After coding
+
+```bash
+forge test --match-contract HyPegEquiv -vv   # unsupported-pair + fork venue checks
+forge test --match-contract FxSaveWstEth -vv # unit + fork for the ETH composite
+yarn sizes                                   # stage regression/sizes.txt if expected
+```
+
+Fork tests should assert on-chain pool/path existence (Curve `coins` / Uni `getPool`), not only compile-time constants.
+
+---
+
+## 7. Mainnet pool caveats
 
 ### Curve (`CurveSwapper_v1`)
 
@@ -393,7 +576,7 @@ pass — no HY change.
 **Not supported by this executor:**
 
 - **Crypto pools** (`exchange(uint256 i, uint256 j, ...)`) — different selector and index
-  type. Route via aggregator or add a dedicated `CurveCryptoSwapper_v1`.
+  type. Route via aggregator, a composite that uses `CurveExchangeLib` Crypto kind, or add a dedicated executor.
 - **NG factory pools** with non-standard ABIs — verify on Etherscan before wiring.
 - **Multi-pool routes** (A → B → C across two Curve pools) — use aggregator or a dedicated
   composite executor (e.g. `FxSaveWstEthSwapper_v1`).
@@ -431,13 +614,14 @@ only `poolId` is stored. Ensure the pool actually contains both tokens.
 ### Uniswap v3 (`UniV3Swapper_v1`)
 
 - Multi-hop supported via longer `path` bytes.
-- Fee tiers must match live pools (`500`, `3000`, `10000`, etc.).
+- Fee tiers must match live pools (`100`, `500`, `3000`, `10000`, etc.).
 - Mainnet router: `0xE592427A0AEce92De3Edee1F18E0157C05861564` (SwapRouter, not SwapRouter02 —
   confirm against the router your pools were deployed against).
+- For quotes, Uni Quoter V1 (`0xb273…AB6`) is enough; QuoterV2 may be absent on some RPCs.
 
 ---
 
-## 7. Roles and governance
+## 8. Roles and governance
 
 | Contract | Role constant | Who needs it |
 |----------|---------------|--------------|
@@ -462,17 +646,19 @@ an ops multisig).
 
 ---
 
-## 8. Verification checklist
+## 9. Verification checklist
 
-**Unit tests (this repo):**
+**Unit + executor fork tests (this repo):**
 
 ```bash
 forge build
-forge test --match-path "test/swap/**" -vv
+forge test --match-path "test/swap/**" --no-match-path "test/swap/fork/**" -vv
+# Pinned mainnet forks (require MAINNET_RPC_URL):
+forge test --match-path "test/swap/fork/**" --fork-url "$MAINNET_RPC_URL" -vv
 ```
 
-**Fork / integration tests:** run in the Harbor Yield consumer repo (full ETH stack + swap
-registry + mocked oracles). Not included in harbor-swap.
+**Full-stack HY integration:** run in the Harbor Yield consumer repo (HY + ACs + oracles +
+swap registry wiring). Not included in harbor-swap.
 
 On-chain reads after deploy (replace addresses):
 
@@ -480,22 +666,25 @@ On-chain reads after deploy (replace addresses):
 // Registry (single pair or legacy storage reads)
 ISwapper.RouteInfo memory info = Swapper_v1(swapper).getRoute(from, to);
 Swapper_v1(swapper).swapExecutors(from, to);
-Swapper_v1(swapper).swapFeeRatios(from, to);
+Swapper_v1(swapper).routeCostRatios(from, to);
 
 // Config events (index from block logs after setRoute / setPath)
-// Swapper_v1:     RouteUpdated(from, to, executor, feeRatio)
+// Swapper_v1:     RouteUpdated(from, to, executor, routeCostRatio)
 // UniV3Swapper:   PathSet(from, to, path)
 // Curve/Balancer: RouteSet(...)
-// OneInchSwapper: AggregatorSwap(...) on each swap
+// VeloraSwapper / OneInchSwapper: AggregatorSwap(...) on each swap
 
 // Executors
 UniV3Swapper_v1(uniV3).paths(from, to).length > 0;
 CurveSwapper_v1(curve).routes(from, to).pool != address(0);
 BalancerSwapper_v1(bal).poolIds(from, to) != bytes32(0);
-// FxSaveWstEthSwapper: verify on mainnet fork in consumer repo
+// Hy peg-equiv venues: test/swap/fork/HyPegEquivRouteConfigFork.t.sol
+// Hy peg-equiv E2E:     test/swap/fork/HyPegEquivSwapFork.t.sol
+// FxSaveWstEthSwapper: also covered by test/swap/fork/FxSaveWstEthSwapperFork.t.sol
 
 // Aggregator (consumer repo)
 HarborYield_v1(hy).hasAnyRole(keeper, HarborYield_v1(hy).REDISTRIBUTOR_ROLE());
+VeloraSwapper_v1(velora).ROUTER() == 0x6A000F20005980200259B80c5102003040001068;
 OneInchSwapper_v1(oneInch).ROUTER() == 0x111111125421cA6dc452d289314280a0f8842A65;
 ```
 
@@ -504,7 +693,7 @@ proxy in isolation in tests), ensure `minAmountOut` respects HY's oracle floor.
 
 ---
 
-## 9. Related files
+## 10. Related files
 
 | File / repo | Role |
 |-------------|------|
@@ -515,4 +704,9 @@ proxy in isolation in tests), ensure `minAmountOut` respects HY's oracle floor.
 | [`script/src/HarborSwapDeployStack.sol`](src/HarborSwapDeployStack.sol) | `SwapDeployOptions`, `deploySwapStack` |
 | [`script/src/Deploy_Swap.sol`](src/Deploy_Swap.sol) | Standalone full swap stack deploy |
 | [`script/Deploy_Swap.s.sol`](../Deploy_Swap.s.sol) | Runnable forge script for swap-only deploy |
+| [`script/measure-route-cost-eth.sh`](measure-route-cost-eth.sh) | Live fxSAVE ↔ wstETH routeCostRatio |
+| [`script/measure-route-cost-btc.sh`](measure-route-cost-btc.sh) | Live hyBTC routeCostRatio |
+| [`script/measure-route-cost-eur.sh`](measure-route-cost-eur.sh) | Live hyEUR routeCostRatio |
+| [`script/measure-route-cost-usd.sh`](measure-route-cost-usd.sh) | USD stub (until a dedicated route exists) |
 | [`src/swap/README.md`](../src/swap/README.md) | Architecture + threat model |
+| [`src/swap/config/`](../src/swap/config/) | Per-route mainnet venue constants |

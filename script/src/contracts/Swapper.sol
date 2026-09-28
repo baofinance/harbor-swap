@@ -9,35 +9,53 @@ import {Swapper_v1} from "@harbor-swap/Swapper_v1.sol";
 import {UniV3Swapper_v1} from "@harbor-swap/executors/UniV3Swapper_v1.sol";
 import {CurveSwapper_v1} from "@harbor-swap/executors/CurveSwapper_v1.sol";
 import {BalancerSwapper_v1} from "@harbor-swap/executors/BalancerSwapper_v1.sol";
+import {VeloraSwapper_v1} from "@harbor-swap/aggregator/VeloraSwapper_v1.sol";
 import {OneInchSwapper_v1} from "@harbor-swap/aggregator/OneInchSwapper_v1.sol";
 import {FxSaveWstEthSwapper_v1} from "@harbor-swap/executors/FxSaveWstEthSwapper_v1.sol";
+import {FxSaveWbtcSwapper_v1} from "@harbor-swap/executors/FxSaveWbtcSwapper_v1.sol";
+import {FxSaveLbtcSwapper_v1} from "@harbor-swap/executors/FxSaveLbtcSwapper_v1.sol";
+import {FxSaveEurcSwapper_v1} from "@harbor-swap/executors/FxSaveEurcSwapper_v1.sol";
+import {WstEthWbtcSwapper_v1} from "@harbor-swap/executors/WstEthWbtcSwapper_v1.sol";
+import {WstEthLbtcSwapper_v1} from "@harbor-swap/executors/WstEthLbtcSwapper_v1.sol";
 
+import {ConfigVelora} from "@harbor-swap-script/config/ConfigVelora.sol";
 import {ConfigOneInch} from "@harbor-swap-script/config/ConfigOneInch.sol";
 import {ConfigBalancer} from "@harbor-swap-script/config/ConfigBalancer.sol";
 
 /// @notice Harbor Swapper deployment logic.
-/// @dev Swapper_v1 is a pure route registry shared across all HY peg instances. Direct
+/// @dev Swapper_v1 is a pure route registry shared across all HarborYield peg instances. Direct
 ///      executors (UniV3, Curve, Balancer) implement ISwapExecutor and are registered in
-///      Swapper_v1 via setRoute(). The aggregator adapter (OneInchSwapper_v1) lives
-///      alongside the registry and is consumed directly by HarborYield_v1 via its
-///      role-gated executeAggregatorSwap entrypoint (not through the Swapper_v1 registry).
+///      Swapper_v1 via setRoute(). Aggregator adapters (`VeloraSwapper_v1` primary, `OneInchSwapper_v1` optional) live
+///      alongside the registry and are consumed directly by HarborYield_v1 via its role-gated
+///      `redistribute` entrypoint (not through the Swapper_v1 registry). The keeper names which
+///      adapter to use per call.
 ///      Salts: {saltPrefix}::swapper / {saltPrefix}::uniV3Swapper /
 ///      {saltPrefix}::curveSwapper / {saltPrefix}::balancerSwapper /
-///      {saltPrefix}::oneInchSwapper / {saltPrefix}::fxSaveWstEthSwapper (all shared, not peg-specific).
+///      {saltPrefix}::veloraSwapper / {saltPrefix}::oneInchSwapper /
+///      {saltPrefix}::fxSaveWstEthSwapper / {saltPrefix}::fxSaveWbtcSwapper /
+///      {saltPrefix}::fxSaveLbtcSwapper / {saltPrefix}::fxSaveEurcSwapper /
+///      {saltPrefix}::wstEthWbtcSwapper / {saltPrefix}::wstEthLbtcSwapper
+///      (all shared, not peg-specific).
 ///
 ///      Deployment pattern:
 ///        deploySwapper(state)               — registry
 ///        deployUniV3Swapper(state)          — UniV3 executor (uses _uniV3RouterAddress())
 ///        deployFxSaveWstEthSwapper(state)   — fxSAVE ↔ wstETH composite (ETH mainnet route)
+///        deployFxSaveWbtcSwapper(state)     — fxSAVE ↔ WBTC composite
+///        deployFxSaveLbtcSwapper(state)     — fxSAVE ↔ LBTC composite (UniV3 wrap)
+///        deployFxSaveEurcSwapper(state)     — fxSAVE → EURC composite (needs UniV3 router)
+///        deployWstEthWbtcSwapper(state)     — wstETH → WBTC UniV3 multi-hop
+///        deployWstEthLbtcSwapper(state)     — wstETH → LBTC UniV3 multi-hop
 ///        deployCurveSwapper(state)     — Curve executor (no canonical router; pool
 ///                                        addresses come from per-pair setRoute config)
 ///        deployBalancerSwapper(state)  — Balancer V2 executor (uses ConfigBalancer.VAULT)
-///        deployOneInchSwapper(state)   — 1inch v6 aggregator adapter (uses ConfigOneInch)
+///        deployVeloraSwapper(state)   — Velora Augustus v6.2 aggregator adapter (uses ConfigVelora)
+///        deployOneInchSwapper(state)  — 1inch v6 aggregator adapter (uses ConfigOneInch)
 ///
 ///      Override _uniV3RouterAddress() in concrete deploy scripts and fork test setup
 ///      to supply the network-specific router. Unit tests that construct an ad-hoc mock
 ///      router/vault use the explicit-address overload: deployXxxSwapper(state, mockAddr).
-abstract contract Swapper is Deployer, ConfigOneInch, ConfigBalancer {
+abstract contract Swapper is Deployer, ConfigVelora, ConfigOneInch, ConfigBalancer {
     // this is duplicated from HarborDeployer
     address private constant TREASURY_OWNER = 0x9bABfC1A1952a6ed2caC1922BFfE80c0506364a2;
 
@@ -191,6 +209,50 @@ abstract contract Swapper is Deployer, ConfigOneInch, ConfigBalancer {
         proxy = _deployProxyAndRecord(stateData, "balancerSwapper", impl, initData);
     }
 
+    // ─── VeloraSwapper_v1 (Velora Augustus v6.2 aggregator adapter) ─────────
+
+    /// @notice Deploy VeloraSwapper_v1 implementation only.
+    ///         Virtual so tests can inject an alternative aggregator implementation.
+    function deployVeloraSwapperImplementation(address veloraRouter) internal virtual returns (address impl) {
+        impl = address(new VeloraSwapper_v1(veloraRouter));
+    }
+
+    /// @notice Deploy VeloraSwapper using the canonical Augustus v6.2 router address from
+    ///         ConfigVelora. This is the production path on every supported chain.
+    function deployVeloraSwapper(DeploymentTypes.State memory stateData) internal returns (address proxy) {
+        return _deployVeloraSwapperWith(stateData, VELORA_AUGUSTUS_V62);
+    }
+
+    /// @notice Deploy VeloraSwapper with an explicit router address. Used by unit tests
+    ///         that wire a MockAugustusV62.
+    function deployVeloraSwapper(
+        DeploymentTypes.State memory stateData,
+        address veloraRouter
+    ) internal returns (address proxy) {
+        return _deployVeloraSwapperWith(stateData, veloraRouter);
+    }
+
+    function _deployVeloraSwapperWith(
+        DeploymentTypes.State memory stateData,
+        address veloraRouter
+    ) private returns (address proxy) {
+        console.log("    > veloraSwapper");
+
+        address impl = deployVeloraSwapperImplementation(veloraRouter);
+        console.log("        Impl: %s", impl);
+
+        _recordImplementation(
+            stateData,
+            "veloraSwapper",
+            "@harbor-swap/aggregator/VeloraSwapper_v1.sol",
+            "VeloraSwapper_v1",
+            impl
+        );
+
+        bytes memory initData = abi.encodeCall(VeloraSwapper_v1.initialize, (address(this), owner()));
+        proxy = _deployProxyAndRecord(stateData, "veloraSwapper", impl, initData);
+    }
+
     // ─── OneInchSwapper_v1 (1inch v6 aggregator adapter) ───────────────────
 
     /// @notice Deploy OneInchSwapper_v1 implementation only.
@@ -206,8 +268,7 @@ abstract contract Swapper is Deployer, ConfigOneInch, ConfigBalancer {
     }
 
     /// @notice Deploy OneInchSwapper with an explicit router address. Used by unit tests
-    ///         that wire a MockAggregationRouterV6 (or future per-chain overrides if 1inch ever
-    ///         publishes a different address).
+    ///         that wire a MockAggregationRouterV6.
     function deployOneInchSwapper(
         DeploymentTypes.State memory stateData,
         address oneInchRouter
@@ -239,18 +300,32 @@ abstract contract Swapper is Deployer, ConfigOneInch, ConfigBalancer {
     // ─── FxSaveWstEthSwapper_v1 (fxSAVE ↔ wstETH composite route) ───────────
 
     /// @notice Deploy FxSaveWstEthSwapper_v1 implementation only.
-    ///         Virtual so tests can inject a harness with mock pool/vault addresses.
-    function deployFxSaveWstEthSwapperImplementation() internal virtual returns (address impl) {
-        impl = address(new FxSaveWstEthSwapper_v1());
+    ///         Virtual so tests can inject a harness with mock pool/vault/router addresses.
+    function deployFxSaveWstEthSwapperImplementation(address uniV3Router) internal virtual returns (address impl) {
+        impl = address(new FxSaveWstEthSwapper_v1(uniV3Router));
     }
 
     /// @notice Deploy the fxSAVE ↔ wstETH composite executor for Ethereum mainnet.
     ///         Route constants are compiled into the implementation via
-    ///         `ConfigFxSaveWstEthRoute_ETH_mainnet`.
+    ///         `ConfigFxSaveWstEthRoute_ETH_mainnet`. Needs the UniV3 router for the ETH stack hop.
     function deployFxSaveWstEthSwapper(DeploymentTypes.State memory stateData) internal returns (address proxy) {
+        return _deployFxSaveWstEthSwapperWith(stateData, _uniV3RouterAddress());
+    }
+
+    function deployFxSaveWstEthSwapper(
+        DeploymentTypes.State memory stateData,
+        address uniV3Router
+    ) internal returns (address proxy) {
+        return _deployFxSaveWstEthSwapperWith(stateData, uniV3Router);
+    }
+
+    function _deployFxSaveWstEthSwapperWith(
+        DeploymentTypes.State memory stateData,
+        address uniV3Router
+    ) private returns (address proxy) {
         console.log("    > fxSaveWstEthSwapper");
 
-        address impl = deployFxSaveWstEthSwapperImplementation();
+        address impl = deployFxSaveWstEthSwapperImplementation(uniV3Router);
         console.log("        Impl: %s", impl);
 
         _recordImplementation(
@@ -263,5 +338,185 @@ abstract contract Swapper is Deployer, ConfigOneInch, ConfigBalancer {
 
         bytes memory initData = abi.encodeCall(FxSaveWstEthSwapper_v1.initialize, (address(this), owner()));
         proxy = _deployProxyAndRecord(stateData, "fxSaveWstEthSwapper", impl, initData);
+    }
+
+    // ─── FxSaveWbtcSwapper_v1 (fxSAVE ↔ WBTC) ───────────────────────────────
+
+    function deployFxSaveWbtcSwapperImplementation(address uniV3Router) internal virtual returns (address impl) {
+        impl = address(new FxSaveWbtcSwapper_v1(uniV3Router));
+    }
+
+    function deployFxSaveWbtcSwapper(DeploymentTypes.State memory stateData) internal returns (address proxy) {
+        return _deployFxSaveWbtcSwapperWith(stateData, _uniV3RouterAddress());
+    }
+
+    function deployFxSaveWbtcSwapper(
+        DeploymentTypes.State memory stateData,
+        address uniV3Router
+    ) internal returns (address proxy) {
+        return _deployFxSaveWbtcSwapperWith(stateData, uniV3Router);
+    }
+
+    function _deployFxSaveWbtcSwapperWith(
+        DeploymentTypes.State memory stateData,
+        address uniV3Router
+    ) private returns (address proxy) {
+        console.log("    > fxSaveWbtcSwapper");
+
+        address impl = deployFxSaveWbtcSwapperImplementation(uniV3Router);
+        console.log("        Impl: %s", impl);
+        _recordImplementation(
+            stateData,
+            "fxSaveWbtcSwapper",
+            "@harbor-swap/executors/FxSaveWbtcSwapper_v1.sol",
+            "FxSaveWbtcSwapper_v1",
+            impl
+        );
+        bytes memory initData = abi.encodeCall(FxSaveWbtcSwapper_v1.initialize, (address(this), owner()));
+        proxy = _deployProxyAndRecord(stateData, "fxSaveWbtcSwapper", impl, initData);
+    }
+
+    // ─── FxSaveLbtcSwapper_v1 (fxSAVE ↔ LBTC) ───────────────────────────────
+
+    function deployFxSaveLbtcSwapperImplementation(address uniV3Router) internal virtual returns (address impl) {
+        impl = address(new FxSaveLbtcSwapper_v1(uniV3Router));
+    }
+
+    function deployFxSaveLbtcSwapper(DeploymentTypes.State memory stateData) internal returns (address proxy) {
+        return _deployFxSaveLbtcSwapperWith(stateData, _uniV3RouterAddress());
+    }
+
+    function deployFxSaveLbtcSwapper(
+        DeploymentTypes.State memory stateData,
+        address uniV3Router
+    ) internal returns (address proxy) {
+        return _deployFxSaveLbtcSwapperWith(stateData, uniV3Router);
+    }
+
+    function _deployFxSaveLbtcSwapperWith(
+        DeploymentTypes.State memory stateData,
+        address uniV3Router
+    ) private returns (address proxy) {
+        console.log("    > fxSaveLbtcSwapper");
+
+        address impl = deployFxSaveLbtcSwapperImplementation(uniV3Router);
+        console.log("        Impl: %s", impl);
+        _recordImplementation(
+            stateData,
+            "fxSaveLbtcSwapper",
+            "@harbor-swap/executors/FxSaveLbtcSwapper_v1.sol",
+            "FxSaveLbtcSwapper_v1",
+            impl
+        );
+        bytes memory initData = abi.encodeCall(FxSaveLbtcSwapper_v1.initialize, (address(this), owner()));
+        proxy = _deployProxyAndRecord(stateData, "fxSaveLbtcSwapper", impl, initData);
+    }
+
+    // ─── FxSaveEurcSwapper_v1 (fxSAVE → EURC) ───────────────────────────────
+
+    function deployFxSaveEurcSwapperImplementation(address uniV3Router) internal virtual returns (address impl) {
+        impl = address(new FxSaveEurcSwapper_v1(uniV3Router));
+    }
+
+    function deployFxSaveEurcSwapper(DeploymentTypes.State memory stateData) internal returns (address proxy) {
+        return _deployFxSaveEurcSwapperWith(stateData, _uniV3RouterAddress());
+    }
+
+    function deployFxSaveEurcSwapper(
+        DeploymentTypes.State memory stateData,
+        address uniV3Router
+    ) internal returns (address proxy) {
+        return _deployFxSaveEurcSwapperWith(stateData, uniV3Router);
+    }
+
+    function _deployFxSaveEurcSwapperWith(
+        DeploymentTypes.State memory stateData,
+        address uniV3Router
+    ) private returns (address proxy) {
+        console.log("    > fxSaveEurcSwapper");
+
+        address impl = deployFxSaveEurcSwapperImplementation(uniV3Router);
+        console.log("        Impl: %s", impl);
+        _recordImplementation(
+            stateData,
+            "fxSaveEurcSwapper",
+            "@harbor-swap/executors/FxSaveEurcSwapper_v1.sol",
+            "FxSaveEurcSwapper_v1",
+            impl
+        );
+        bytes memory initData = abi.encodeCall(FxSaveEurcSwapper_v1.initialize, (address(this), owner()));
+        proxy = _deployProxyAndRecord(stateData, "fxSaveEurcSwapper", impl, initData);
+    }
+
+    // ─── WstEthWbtcSwapper_v1 (wstETH → WBTC) ───────────────────────────────
+
+    function deployWstEthWbtcSwapperImplementation(address uniV3Router) internal virtual returns (address impl) {
+        impl = address(new WstEthWbtcSwapper_v1(uniV3Router));
+    }
+
+    function deployWstEthWbtcSwapper(DeploymentTypes.State memory stateData) internal returns (address proxy) {
+        return _deployWstEthWbtcSwapperWith(stateData, _uniV3RouterAddress());
+    }
+
+    function deployWstEthWbtcSwapper(
+        DeploymentTypes.State memory stateData,
+        address uniV3Router
+    ) internal returns (address proxy) {
+        return _deployWstEthWbtcSwapperWith(stateData, uniV3Router);
+    }
+
+    function _deployWstEthWbtcSwapperWith(
+        DeploymentTypes.State memory stateData,
+        address uniV3Router
+    ) private returns (address proxy) {
+        console.log("    > wstEthWbtcSwapper");
+
+        address impl = deployWstEthWbtcSwapperImplementation(uniV3Router);
+        console.log("        Impl: %s", impl);
+        _recordImplementation(
+            stateData,
+            "wstEthWbtcSwapper",
+            "@harbor-swap/executors/WstEthWbtcSwapper_v1.sol",
+            "WstEthWbtcSwapper_v1",
+            impl
+        );
+        bytes memory initData = abi.encodeCall(WstEthWbtcSwapper_v1.initialize, (address(this), owner()));
+        proxy = _deployProxyAndRecord(stateData, "wstEthWbtcSwapper", impl, initData);
+    }
+
+    // ─── WstEthLbtcSwapper_v1 (wstETH → LBTC) ───────────────────────────────
+
+    function deployWstEthLbtcSwapperImplementation(address uniV3Router) internal virtual returns (address impl) {
+        impl = address(new WstEthLbtcSwapper_v1(uniV3Router));
+    }
+
+    function deployWstEthLbtcSwapper(DeploymentTypes.State memory stateData) internal returns (address proxy) {
+        return _deployWstEthLbtcSwapperWith(stateData, _uniV3RouterAddress());
+    }
+
+    function deployWstEthLbtcSwapper(
+        DeploymentTypes.State memory stateData,
+        address uniV3Router
+    ) internal returns (address proxy) {
+        return _deployWstEthLbtcSwapperWith(stateData, uniV3Router);
+    }
+
+    function _deployWstEthLbtcSwapperWith(
+        DeploymentTypes.State memory stateData,
+        address uniV3Router
+    ) private returns (address proxy) {
+        console.log("    > wstEthLbtcSwapper");
+
+        address impl = deployWstEthLbtcSwapperImplementation(uniV3Router);
+        console.log("        Impl: %s", impl);
+        _recordImplementation(
+            stateData,
+            "wstEthLbtcSwapper",
+            "@harbor-swap/executors/WstEthLbtcSwapper_v1.sol",
+            "WstEthLbtcSwapper_v1",
+            impl
+        );
+        bytes memory initData = abi.encodeCall(WstEthLbtcSwapper_v1.initialize, (address(this), owner()));
+        proxy = _deployProxyAndRecord(stateData, "wstEthLbtcSwapper", impl, initData);
     }
 }

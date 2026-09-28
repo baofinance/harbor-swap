@@ -64,17 +64,12 @@ abstract contract SwapExecutorTestBase is Test {
     ///      preview functions, never hardcoded, so fixtures can (and do) use non-unity rates.
     function _expectedOut(uint256 amountIn) internal view virtual returns (uint256);
 
-    /// @dev The venue's current rate in the units `swap` takes its floor in: `toToken` out per 1e18 of
-    ///      `fromToken` in. Quoting the floor as a rate is what lets it survive a partial fill, so a
-    ///      test that wants "exactly what the venue offers" asks for this rather than for an amount.
-    function _expectedRatePerUnitIn() internal view returns (uint256) {
-        return _expectedOut(1 ether);
-    }
-
-    /// @dev The absolute output the envelope will demand of `amountIn` at `ratePerUnitIn`, rounded up
-    ///      exactly as the envelope rounds it — the value that appears in `InsufficientAmountOut`.
-    function _requiredOut(uint256 amountIn, uint256 ratePerUnitIn) internal pure returns (uint256) {
-        return Math.mulDiv(amountIn, ratePerUnitIn, 1 ether, Math.Rounding.Ceil);
+    /// @dev The absolute output the envelope demands when the venue spent `spent` of an order of
+    ///      `amountIn` against a floor of `minAmountOut`, rounded up exactly as the envelope rounds
+    ///      it — the value that appears in `InsufficientAmountOut`. A full fill (`spent == amountIn`)
+    ///      demands `minAmountOut` itself, with no rounding applied at all.
+    function _requiredOut(uint256 minAmountOut, uint256 spent, uint256 amountIn) internal pure returns (uint256) {
+        return Math.mulDiv(spent, minAmountOut, amountIn, Math.Rounding.Ceil);
     }
 
     /// @dev Turn the venue into a "liar": it under-delivers relative to its current rate and
@@ -120,28 +115,39 @@ abstract contract SwapExecutorTestBase is Test {
         _prepareSwapPair(_swapFromToken(), _swapToToken());
         uint256 expected = _expectedOut(amountIn);
 
-        uint256 amountOut = _swapCall(_swapFromToken(), _swapToToken(), amountIn, _expectedRatePerUnitIn());
+        uint256 amountOut = _swapCall(_swapFromToken(), _swapToToken(), amountIn, expected);
 
-        assertEq(amountOut, expected, "venue delivers exactly the demanded rate");
+        assertEq(amountOut, expected, "venue delivers exactly the amount demanded");
         assertEq(IERC20(_swapToToken()).balanceOf(address(this)), amountOut, "delivered to caller");
+    }
+
+    /// @notice A zero-size order is rejected as such, rather than reaching the zero-output guard —
+    ///         the right outcome for the wrong reason, and it would divide by zero when pro-rating
+    ///         the floor.
+    function test_swapExecutor_zeroAmountIn_reverts() public {
+        _prepareSwapPair(_swapFromToken(), _swapToToken());
+
+        vm.expectRevert(SwapExecutorBase.ZeroAmountIn.selector);
+        _swapCall(_swapFromToken(), _swapToToken(), 0, 0);
     }
 
     /// @notice A venue that under-delivers WITHOUT reverting (ignoring any native minimum) is
     ///         caught by the executor's own balance-delta floor — the authoritative guard —
-    ///         with the exact shortfall in the error.
+    ///         with the exact shortfall in the error. On a full fill the floor reported is the
+    ///         caller's own number, unrounded: a floor expressed as a rate could not promise that,
+    ///         since it must be scaled back up by the size and rounded before it can be enforced.
     function test_swapExecutor_belowMinAmountOut_reverts() public {
         uint256 amountIn = _oneFromToken();
         _fundAndApprove(_swapFromToken(), amountIn);
         _prepareSwapPair(_swapFromToken(), _swapToToken());
-        uint256 minRate = _expectedRatePerUnitIn();
-        uint256 required = _requiredOut(amountIn, minRate);
+        uint256 required = _expectedOut(amountIn);
 
         _setVenueLiar();
         uint256 lied = _expectedOut(amountIn);
         assertLt(lied, required, "sanity: the liar under-delivers");
 
         vm.expectRevert(abi.encodeWithSelector(SwapExecutorBase.InsufficientAmountOut.selector, lied, required));
-        _swapCall(_swapFromToken(), _swapToToken(), amountIn, minRate);
+        _swapCall(_swapFromToken(), _swapToToken(), amountIn, required);
     }
 
     /// @notice A donated toToken balance sitting in the executor is not paid out to the

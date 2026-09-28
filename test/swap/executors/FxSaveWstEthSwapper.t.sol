@@ -2,8 +2,8 @@
 pragma solidity >=0.8.28 <0.9.0;
 
 // Tests FxSaveWstEthSwapper_v1: bidirectional fxSAVE ↔ wstETH composite routes (Curve pools,
-// scrvUSD vault deposit/redeem), slippage on final output, unsupported pair revert, approval
-// reset, token transfer, pool/vault failure paths, and reentrancy guard.
+// scrvUSD vault, UniV3 ETH stack hop), slippage on final output, unsupported pair revert,
+// approval reset, token transfer, pool/vault failure paths, and reentrancy guard.
 
 import {BaoTest} from "@bao-test/BaoTest.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -14,8 +14,9 @@ import {DeploymentState} from "@bao-script/deployment/DeploymentState.sol";
 
 import {MockERC20} from "@bao-test/mocks/MockERC20.sol";
 import {MockERC4626Vault} from "@harbor-swap-test-mocks/MockERC4626Vault.sol";
-import {MockCurveCryptoPool} from "@harbor-swap-test-mocks/MockCurveCryptoPool.sol";
+import {MockCurveStableSwapPool} from "@harbor-swap-test-mocks/MockCurveStableSwapPool.sol";
 import {MockFxSaveScrvUsdPool} from "@harbor-swap-test-mocks/MockFxSaveScrvUsdPool.sol";
+import {MockUniV3Router} from "@harbor-swap-test-mocks/MockUniV3Router.sol";
 
 import {ReentrancyGuardTransient} from "@openzeppelin/contracts/utils/ReentrancyGuardTransient.sol";
 
@@ -32,38 +33,41 @@ contract FxSaveWstEthSwapperHarness is FxSaveWstEthSwapper_v1 {
     struct RouteCfg {
         address fxSave;
         address wstEth;
+        address usdc;
         address crvUsd;
         address scrvUsdVault;
         address poolFxSaveScrvUsd;
-        address poolTricryptoLlama;
+        address poolCrvUsdUsdc;
         int128 pool2IFxSave;
         int128 pool2JScrvUsd;
-        int128 pool1ICrvUsd;
-        int128 pool1JWstEth;
+        int128 poolUsdIUsdc;
+        int128 poolUsdJCrvUsd;
     }
 
     address private immutable _fxSaveToken;
     address private immutable _wstEthToken;
+    address private immutable _usdcToken;
     address private immutable _crvUsdToken;
     address private immutable _scrvUsdVaultToken;
     address private immutable _poolFxSaveScrvUsdAddr;
-    address private immutable _poolTricryptoLlamaAddr;
+    address private immutable _poolCrvUsdUsdcAddr;
     int128 private immutable _pool2IFxSaveIdx;
     int128 private immutable _pool2JScrvUsdIdx;
-    int128 private immutable _pool1ICrvUsdIdx;
-    int128 private immutable _pool1JWstEthIdx;
+    int128 private immutable _poolUsdIUsdcIdx;
+    int128 private immutable _poolUsdJCrvUsdIdx;
 
-    constructor(RouteCfg memory cfg_) {
+    constructor(address uniV3Router_, RouteCfg memory cfg_) FxSaveWstEthSwapper_v1(uniV3Router_) {
         _fxSaveToken = cfg_.fxSave;
         _wstEthToken = cfg_.wstEth;
+        _usdcToken = cfg_.usdc;
         _crvUsdToken = cfg_.crvUsd;
         _scrvUsdVaultToken = cfg_.scrvUsdVault;
         _poolFxSaveScrvUsdAddr = cfg_.poolFxSaveScrvUsd;
-        _poolTricryptoLlamaAddr = cfg_.poolTricryptoLlama;
+        _poolCrvUsdUsdcAddr = cfg_.poolCrvUsdUsdc;
         _pool2IFxSaveIdx = cfg_.pool2IFxSave;
         _pool2JScrvUsdIdx = cfg_.pool2JScrvUsd;
-        _pool1ICrvUsdIdx = cfg_.pool1ICrvUsd;
-        _pool1JWstEthIdx = cfg_.pool1JWstEth;
+        _poolUsdIUsdcIdx = cfg_.poolUsdIUsdc;
+        _poolUsdJCrvUsdIdx = cfg_.poolUsdJCrvUsd;
     }
 
     function _fxSave() internal view override returns (address) {
@@ -72,6 +76,10 @@ contract FxSaveWstEthSwapperHarness is FxSaveWstEthSwapper_v1 {
 
     function _wstEth() internal view override returns (address) {
         return _wstEthToken;
+    }
+
+    function _usdc() internal view override returns (address) {
+        return _usdcToken;
     }
 
     function _crvUsd() internal view override returns (address) {
@@ -86,13 +94,9 @@ contract FxSaveWstEthSwapperHarness is FxSaveWstEthSwapper_v1 {
         return _poolFxSaveScrvUsdAddr;
     }
 
-    function _poolTricryptoLlama() internal view override returns (address) {
-        return _poolTricryptoLlamaAddr;
+    function _poolCrvUsdUsdc() internal view override returns (address) {
+        return _poolCrvUsdUsdcAddr;
     }
-
-    // The production kind getters are NOT overridden: the mock pools present the same
-    // families as the real route (fxSAVE/scrvUSD StableSwap int128, Tricrypto crypto
-    // uint256), so unit tests exercise the production family dispatch.
 
     function _pool2IFxSave() internal view override returns (int128) {
         return _pool2IFxSaveIdx;
@@ -102,12 +106,21 @@ contract FxSaveWstEthSwapperHarness is FxSaveWstEthSwapper_v1 {
         return _pool2JScrvUsdIdx;
     }
 
-    function _pool1ICrvUsd() internal view override returns (int128) {
-        return _pool1ICrvUsdIdx;
+    function _poolUsdIUsdc() internal view override returns (int128) {
+        return _poolUsdIUsdcIdx;
     }
 
-    function _pool1JWstEth() internal view override returns (int128) {
-        return _pool1JWstEthIdx;
+    function _poolUsdJCrvUsd() internal view override returns (int128) {
+        return _poolUsdJCrvUsdIdx;
+    }
+
+    // Rebuild path from immutables — UUPS proxy storage would not see constructor-written bytes.
+    function _uniPathUsdcToWstEth() internal view override returns (bytes memory) {
+        return abi.encodePacked(_usdcToken, uint24(500), address(uint160(1)), uint24(100), _wstEthToken);
+    }
+
+    function _uniPathWstEthToUsdc() internal view override returns (bytes memory) {
+        return abi.encodePacked(_wstEthToken, uint24(100), address(uint160(1)), uint24(500), _usdcToken);
     }
 }
 
@@ -120,8 +133,8 @@ contract FxSaveWstEthSwapperTest is BaoTest, TokenHolderTestBase, SwapExecutorTe
         return address(this);
     }
 
-    function _uniV3RouterAddress() internal pure override returns (address) {
-        return address(0);
+    function _uniV3RouterAddress() internal view override returns (address) {
+        return uniRouter;
     }
 
     function _tokenHolderTarget() internal view override returns (address) {
@@ -157,9 +170,9 @@ contract FxSaveWstEthSwapperTest is BaoTest, TokenHolderTestBase, SwapExecutorTe
         return ISwapExecutor(swapperProxy).swap(fromToken_, toToken_, amountIn, minAmountOut);
     }
 
-    /// @dev The forward route's output leg is the Tricrypto mock (crvUSD -> wstETH).
+    /// @dev The forward route's output leg is the Uni mock (USDC -> wstETH).
     function _setVenueRate(uint256 rate) internal override {
-        MockCurveCryptoPool(payable(poolTricryptoLlama)).setRate(rate);
+        MockUniV3Router(uniRouter).setRate(rate);
     }
 
     function _expectedOut(uint256 amountIn) internal view override returns (uint256) {
@@ -168,10 +181,8 @@ contract FxSaveWstEthSwapperTest is BaoTest, TokenHolderTestBase, SwapExecutorTe
     }
 
     function _setVenueLiar() internal override {
-        MockCurveCryptoPool(payable(poolTricryptoLlama)).setHonourMinDy(false);
-        MockCurveCryptoPool(payable(poolTricryptoLlama)).setRate(
-            MockCurveCryptoPool(payable(poolTricryptoLlama)).rate() / 2
-        );
+        MockUniV3Router(uniRouter).setHonourMin(false);
+        MockUniV3Router(uniRouter).setRate(MockUniV3Router(uniRouter).rate() / 2);
     }
 
     function _uupsProxyTarget() internal view override returns (address) {
@@ -186,16 +197,16 @@ contract FxSaveWstEthSwapperTest is BaoTest, TokenHolderTestBase, SwapExecutorTe
         FxSaveWstEthSwapper_v1(target).initialize(address(1), address(2));
     }
 
-    // All fixture tokens are 18 decimals BY CONSTRUCTION: the real route's tokens (fxSAVE,
-    // wstETH, crvUSD, scrvUSD) are all genuinely 18-decimals, so mixed-decimals fixtures
-    // would model an impossible configuration. Mixed-decimals coverage of the shared
-    // envelope lives in the generic executor fixtures (OneInch 6→18, Curve 18→6).
+    // Fixture tokens are 18 decimals BY CONSTRUCTION (production USDC is 6; the mocks keep
+    // a single scale so quote composition stays exact without decimals plumbing).
     address fxSAVE;
     address wstETH;
+    address usdc;
     address crvUSD;
     address scrvUsdVault;
     address poolFxSaveScrvUsd;
-    address poolTricryptoLlama;
+    address poolCrvUsdUsdc;
+    address uniRouter;
     address swapperProxy;
     address alice = makeAddr("alice");
 
@@ -203,15 +214,12 @@ contract FxSaveWstEthSwapperTest is BaoTest, TokenHolderTestBase, SwapExecutorTe
 
     int128 constant POOL2_I = 0;
     int128 constant POOL2_J = 1;
-    int128 constant POOL1_I = 0;
-    int128 constant POOL1_J = 2;
+    int128 constant POOL_USD_I = 0;
+    int128 constant POOL_USD_J = 1;
 
-    /// @dev Non-unity fixture rates approximating the real route (fxSAVE ≈ 1.0013
-    ///      scrvUSD-shares-per-fxSAVE pool quote; crvUSD → wstETH ≈ 0.000447; scrvUSD vault
-    ///      seeded below to ≈ 1.1 assets/share), so no assertion can pass by an
-    ///      `amountOut == amountIn` tautology.
     uint256 constant FXSAVE_POOL_RATE = 1.0013e18;
-    uint256 constant TRICRYPTO_RATE = 0.000447e18;
+    uint256 constant CRVUSD_USDC_RATE = 1e18;
+    uint256 constant UNI_RATE = 0.000447e18;
     uint256 constant VAULT_SEED_ASSETS = 1000 ether;
     uint256 constant VAULT_SEED_YIELD = 104.6 ether;
 
@@ -221,11 +229,10 @@ contract FxSaveWstEthSwapperTest is BaoTest, TokenHolderTestBase, SwapExecutorTe
 
         fxSAVE = address(new MockERC20("fxSAVE", "fxSAVE", 18));
         wstETH = address(new MockERC20("wstETH", "wstETH", 18));
+        usdc = address(new MockERC20("USDC", "USDC", 18));
         crvUSD = address(new MockERC20("crvUSD", "crvUSD", 18));
 
         scrvUsdVault = address(new MockERC4626Vault(IERC20(crvUSD), "scrvUSD", "scrvUSD"));
-        // Seed a non-unity share price (≈ the real scrvUSD's ~1.1 assets/share): deposit,
-        // then accrue yield.
         MockERC20(crvUSD).mint(address(this), VAULT_SEED_ASSETS);
         IERC20(crvUSD).approve(scrvUsdVault, VAULT_SEED_ASSETS);
         IERC4626(scrvUsdVault).deposit(VAULT_SEED_ASSETS, address(this));
@@ -234,10 +241,13 @@ contract FxSaveWstEthSwapperTest is BaoTest, TokenHolderTestBase, SwapExecutorTe
         poolFxSaveScrvUsd = address(new MockFxSaveScrvUsdPool(fxSAVE, IERC4626(scrvUsdVault)));
         MockFxSaveScrvUsdPool(poolFxSaveScrvUsd).setRate(FXSAVE_POOL_RATE);
 
-        poolTricryptoLlama = address(new MockCurveCryptoPool());
-        MockCurveCryptoPool(payable(poolTricryptoLlama)).setCoin(POOL1_I, crvUSD);
-        MockCurveCryptoPool(payable(poolTricryptoLlama)).setCoin(POOL1_J, wstETH);
-        MockCurveCryptoPool(payable(poolTricryptoLlama)).setRate(TRICRYPTO_RATE);
+        poolCrvUsdUsdc = address(new MockCurveStableSwapPool());
+        MockCurveStableSwapPool(poolCrvUsdUsdc).setCoin(POOL_USD_I, usdc);
+        MockCurveStableSwapPool(poolCrvUsdUsdc).setCoin(POOL_USD_J, crvUSD);
+        MockCurveStableSwapPool(poolCrvUsdUsdc).setRate(CRVUSD_USDC_RATE);
+
+        uniRouter = address(new MockUniV3Router());
+        MockUniV3Router(uniRouter).setRate(UNI_RATE);
 
         DeploymentTypes.State memory state = DeploymentState.fresh(SALT_PREFIX, "test");
         state.baoFactory = baoFactory();
@@ -245,12 +255,6 @@ contract FxSaveWstEthSwapperTest is BaoTest, TokenHolderTestBase, SwapExecutorTe
         swapperProxy = _predictAddress("fxSaveWstEthSwapper");
     }
 
-    /// @dev Exact forward-route quote mirroring the mock flow: leg 1 mints
-    ///      `amountIn * poolRate` crvUSD into the vault for the swapper; the adapter then
-    ///      redeems those shares AFTER the deposit has shifted the vault's
-    ///      totalAssets/totalSupply — reproduced here with OZ ERC4626's exact
-    ///      floor-rounding formula (decimalsOffset 0, hence the +1 terms); leg 3 scales by
-    ///      the Tricrypto rate.
     function _forwardQuote(uint256 amountIn) internal view returns (uint256 crvUsdOut, uint256 wstEthOut) {
         uint256 crvUsdMinted = (amountIn * MockFxSaveScrvUsdPool(poolFxSaveScrvUsd).rate()) / 1e18;
         uint256 shares = IERC4626(scrvUsdVault).previewDeposit(crvUsdMinted);
@@ -259,32 +263,34 @@ contract FxSaveWstEthSwapperTest is BaoTest, TokenHolderTestBase, SwapExecutorTe
             IERC4626(scrvUsdVault).totalAssets() + crvUsdMinted + 1,
             IERC20(scrvUsdVault).totalSupply() + shares + 1
         );
-        wstEthOut = (crvUsdOut * MockCurveCryptoPool(payable(poolTricryptoLlama)).rate()) / 1e18;
+        uint256 usdcOut = (crvUsdOut * MockCurveStableSwapPool(poolCrvUsdUsdc).rate()) / 1e18;
+        wstEthOut = (usdcOut * MockUniV3Router(uniRouter).rate()) / 1e18;
     }
 
-    /// @dev Exact reverse-route quote: leg 1 (Tricrypto) does not touch the vault, so the
-    ///      deposit preview is taken at the very state the deposit will execute in.
     function _reverseQuote(uint256 amountIn) internal view returns (uint256 crvUsdIntermediate, uint256 fxSaveOut) {
-        crvUsdIntermediate = (amountIn * MockCurveCryptoPool(payable(poolTricryptoLlama)).rate()) / 1e18;
+        uint256 usdcOut = (amountIn * MockUniV3Router(uniRouter).rate()) / 1e18;
+        crvUsdIntermediate = (usdcOut * MockCurveStableSwapPool(poolCrvUsdUsdc).rate()) / 1e18;
         uint256 shares = IERC4626(scrvUsdVault).previewDeposit(crvUsdIntermediate);
         fxSaveOut = (shares * MockFxSaveScrvUsdPool(poolFxSaveScrvUsd).rate()) / 1e18;
     }
 
-    function deployFxSaveWstEthSwapperImplementation() internal override returns (address) {
+    function deployFxSaveWstEthSwapperImplementation(address uniV3Router_) internal override returns (address) {
         return
             address(
                 new FxSaveWstEthSwapperHarness(
+                    uniV3Router_,
                     FxSaveWstEthSwapperHarness.RouteCfg({
                         fxSave: fxSAVE,
                         wstEth: wstETH,
+                        usdc: usdc,
                         crvUsd: crvUSD,
                         scrvUsdVault: scrvUsdVault,
                         poolFxSaveScrvUsd: poolFxSaveScrvUsd,
-                        poolTricryptoLlama: poolTricryptoLlama,
+                        poolCrvUsdUsdc: poolCrvUsdUsdc,
                         pool2IFxSave: POOL2_I,
                         pool2JScrvUsd: POOL2_J,
-                        pool1ICrvUsd: POOL1_I,
-                        pool1JWstEth: POOL1_J
+                        poolUsdIUsdc: POOL_USD_I,
+                        poolUsdJCrvUsd: POOL_USD_J
                     })
                 )
             );
@@ -295,8 +301,6 @@ contract FxSaveWstEthSwapperTest is BaoTest, TokenHolderTestBase, SwapExecutorTe
         IERC20(token).approve(spender, amount);
     }
 
-    /// @notice Full composite route delivers the quote-composed wstETH to the caller and
-    ///         emits the mid-route event with the exact crvUSD intermediate.
     function test_swap_fxSaveToWstEth_happyPath() public {
         uint256 amountIn = 1 ether;
         _mintAndApprove(fxSAVE, swapperProxy, amountIn);
@@ -311,23 +315,14 @@ contract FxSaveWstEthSwapperTest is BaoTest, TokenHolderTestBase, SwapExecutorTe
         assertEq(IERC20(wstETH).balanceOf(address(this)), amountOut);
     }
 
-    /// @notice Final-leg Curve min_dy reverts when minAmountOut exceeds mock output (forward,
-    ///         the Tricrypto leg's Vyper-style "Slippage" wrapped in PoolCallFailed).
     function test_swap_fxSaveToWstEth_revertsOnSlippage() public {
         uint256 amountIn = 1 ether;
         _mintAndApprove(fxSAVE, swapperProxy, amountIn);
 
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                CurveExchangeLib.PoolCallFailed.selector,
-                abi.encodeWithSignature("Error(string)", "Slippage")
-            )
-        );
+        vm.expectRevert(bytes("Too little received"));
         ISwapExecutor(swapperProxy).swap(fxSAVE, wstETH, amountIn, amountIn + 1);
     }
 
-    /// @notice Full composite route delivers the quote-composed fxSAVE to the caller and
-    ///         emits the mid-route event with the exact crvUSD intermediate (reverse).
     function test_swap_wstEthToFxSave_happyPath() public {
         uint256 amountIn = 1 ether;
         _mintAndApprove(wstETH, swapperProxy, amountIn);
@@ -342,8 +337,6 @@ contract FxSaveWstEthSwapperTest is BaoTest, TokenHolderTestBase, SwapExecutorTe
         assertEq(IERC20(fxSAVE).balanceOf(address(this)), amountOut);
     }
 
-    /// @notice Final-leg Curve min_dy reverts when minAmountOut exceeds mock output (reverse,
-    ///         the fxSAVE-pool leg's revert wrapped in PoolCallFailed).
     function test_swap_wstEthToFxSave_revertsOnSlippage() public {
         uint256 amountIn = 1 ether;
         _mintAndApprove(wstETH, swapperProxy, amountIn);
@@ -357,9 +350,6 @@ contract FxSaveWstEthSwapperTest is BaoTest, TokenHolderTestBase, SwapExecutorTe
         ISwapExecutor(swapperProxy).swap(wstETH, fxSAVE, amountIn, amountIn + 1);
     }
 
-    /// @notice A genuinely foreign pair (distinct tokens, but not one of the two supported
-    ///         routes) reverts UnsupportedPair. Same-token calls are rejected earlier by the
-    ///         envelope's SameToken guard (covered in SwapExecutorTestBase).
     function test_swap_unsupportedPair_reverts() public {
         uint256 amountIn = 1 ether;
         _mintAndApprove(fxSAVE, swapperProxy, amountIn);
@@ -368,7 +358,6 @@ contract FxSaveWstEthSwapperTest is BaoTest, TokenHolderTestBase, SwapExecutorTe
         ISwapExecutor(swapperProxy).swap(fxSAVE, crvUSD, amountIn, 0);
     }
 
-    /// @notice Pool and vault allowances are cleared to zero after every forward swap.
     function test_swap_fxSaveToWstEth_approvalsCleared() public {
         uint256 amountIn = 1 ether;
         _mintAndApprove(fxSAVE, swapperProxy, amountIn);
@@ -376,21 +365,21 @@ contract FxSaveWstEthSwapperTest is BaoTest, TokenHolderTestBase, SwapExecutorTe
 
         assertEq(IERC20(fxSAVE).allowance(swapperProxy, poolFxSaveScrvUsd), 0);
         assertEq(IERC20(scrvUsdVault).allowance(swapperProxy, scrvUsdVault), 0);
-        assertEq(IERC20(crvUSD).allowance(swapperProxy, poolTricryptoLlama), 0);
+        assertEq(IERC20(crvUSD).allowance(swapperProxy, poolCrvUsdUsdc), 0);
+        assertEq(IERC20(usdc).allowance(swapperProxy, uniRouter), 0);
     }
 
-    /// @notice Pool and vault allowances are cleared to zero after every reverse swap.
     function test_swap_wstEthToFxSave_approvalsCleared() public {
         uint256 amountIn = 1 ether;
         _mintAndApprove(wstETH, swapperProxy, amountIn);
         ISwapExecutor(swapperProxy).swap(wstETH, fxSAVE, amountIn, 0);
 
-        assertEq(IERC20(wstETH).allowance(swapperProxy, poolTricryptoLlama), 0);
+        assertEq(IERC20(wstETH).allowance(swapperProxy, uniRouter), 0);
+        assertEq(IERC20(usdc).allowance(swapperProxy, poolCrvUsdUsdc), 0);
         assertEq(IERC20(crvUSD).allowance(swapperProxy, scrvUsdVault), 0);
         assertEq(IERC20(scrvUsdVault).allowance(swapperProxy, poolFxSaveScrvUsd), 0);
     }
 
-    /// @notice fromToken pulled from msg.sender; toToken delivered to msg.sender (forward).
     function test_swap_fxSaveToWstEth_tokensTransferred() public {
         uint256 amountIn = 3 ether;
         MockERC20(fxSAVE).mint(alice, amountIn);
@@ -404,7 +393,6 @@ contract FxSaveWstEthSwapperTest is BaoTest, TokenHolderTestBase, SwapExecutorTe
         assertEq(IERC20(wstETH).balanceOf(alice), amountOut);
     }
 
-    /// @notice fromToken pulled from msg.sender; toToken delivered to msg.sender (reverse).
     function test_swap_wstEthToFxSave_tokensTransferred() public {
         uint256 amountIn = 3 ether;
         MockERC20(wstETH).mint(alice, amountIn);
@@ -418,14 +406,10 @@ contract FxSaveWstEthSwapperTest is BaoTest, TokenHolderTestBase, SwapExecutorTe
         assertEq(IERC20(fxSAVE).balanceOf(alice), amountOut);
     }
 
-    /// @notice A donated scrvUSD-share balance is not swept into the caller's output: the
-    ///         forward route consumes only the shares its own leg produced, leaving the
-    ///         donation in the swapper.
     function test_swap_fxSaveToWstEth_ignoresDonatedIntermediate() public {
         uint256 amountIn = 1 ether;
         uint256 donation = 0.5 ether;
 
-        // Seed the swapper with scrvUSD vault shares by depositing crvUSD to its address.
         MockERC20(crvUSD).mint(address(this), donation);
         IERC20(crvUSD).approve(scrvUsdVault, donation);
         IERC4626(scrvUsdVault).deposit(donation, swapperProxy);
@@ -433,7 +417,6 @@ contract FxSaveWstEthSwapperTest is BaoTest, TokenHolderTestBase, SwapExecutorTe
         assertGt(donationShares, 0, "donation seeded");
 
         _mintAndApprove(fxSAVE, swapperProxy, amountIn);
-        // Quote after seeding: the donation deposit shifted the vault state the route runs in.
         (, uint256 wstEthOut) = _forwardQuote(amountIn);
         uint256 amountOut = ISwapExecutor(swapperProxy).swap(fxSAVE, wstETH, amountIn, 0);
 
@@ -441,9 +424,6 @@ contract FxSaveWstEthSwapperTest is BaoTest, TokenHolderTestBase, SwapExecutorTe
         assertEq(IERC20(scrvUsdVault).balanceOf(swapperProxy), donationShares, "donation untouched");
     }
 
-    /// @notice A donated crvUSD balance is not swept into the caller's output: the reverse
-    ///         route deposits only the crvUSD its own leg produced, leaving the donation in
-    ///         the swapper.
     function test_swap_wstEthToFxSave_ignoresDonatedIntermediate() public {
         uint256 amountIn = 1 ether;
         uint256 donation = 0.5 ether;
@@ -459,7 +439,6 @@ contract FxSaveWstEthSwapperTest is BaoTest, TokenHolderTestBase, SwapExecutorTe
         assertEq(IERC20(crvUSD).balanceOf(swapperProxy), donation, "donation untouched");
     }
 
-    /// @notice Pool revert on leg 1 is surfaced via PoolCallFailed (forward).
     function test_swap_fxSaveToWstEth_poolRevert_surfacesError() public {
         MockFxSaveScrvUsdPool(poolFxSaveScrvUsd).setShouldRevert(true);
         uint256 amountIn = 1 ether;
@@ -474,9 +453,6 @@ contract FxSaveWstEthSwapperTest is BaoTest, TokenHolderTestBase, SwapExecutorTe
         ISwapExecutor(swapperProxy).swap(fxSAVE, wstETH, amountIn, 0);
     }
 
-    /// @notice A leg-1 Curve exchange that produces zero scrvUSD shares (forward) reverts
-    ///         Token.ZeroInputBalance for the share token — the Curve leg is the failing
-    ///         actor, not the vault.
     function test_swap_fxSaveToWstEth_zeroLegOneOutput_reverts() public {
         MockFxSaveScrvUsdPool(poolFxSaveScrvUsd).setRate(0);
         uint256 amountIn = 1 ether;
@@ -486,20 +462,15 @@ contract FxSaveWstEthSwapperTest is BaoTest, TokenHolderTestBase, SwapExecutorTe
         ISwapExecutor(swapperProxy).swap(fxSAVE, wstETH, amountIn, 0);
     }
 
-    /// @notice A leg-1 Curve exchange that produces zero crvUSD (reverse) reverts
-    ///         Token.ZeroInputBalance for crvUSD — the Curve leg is the failing actor, not
-    ///         the vault.
     function test_swap_wstEthToFxSave_zeroLegOneOutput_reverts() public {
-        MockCurveCryptoPool(payable(poolTricryptoLlama)).setRate(0);
+        MockUniV3Router(uniRouter).setRate(0);
         uint256 amountIn = 1 ether;
         _mintAndApprove(wstETH, swapperProxy, amountIn);
 
-        vm.expectRevert(abi.encodeWithSelector(Token.ZeroInputBalance.selector, crvUSD));
+        vm.expectRevert(abi.encodeWithSelector(Token.ZeroInputBalance.selector, usdc));
         ISwapExecutor(swapperProxy).swap(wstETH, fxSAVE, amountIn, 0);
     }
 
-    /// @notice A vault redeem that takes >0 shares but returns zero assets reverts
-    ///         VaultRedeemFailed — the vault is the failing actor (forward).
     function test_swap_fxSaveToWstEth_vaultReturnsZeroAssets_reverts() public {
         uint256 amountIn = 1 ether;
         _mintAndApprove(fxSAVE, swapperProxy, amountIn);
@@ -510,8 +481,6 @@ contract FxSaveWstEthSwapperTest is BaoTest, TokenHolderTestBase, SwapExecutorTe
         vm.clearMockedCalls();
     }
 
-    /// @notice A vault deposit that takes >0 crvUSD but mints zero shares reverts
-    ///         VaultDepositFailed — the vault is the failing actor (reverse).
     function test_swap_wstEthToFxSave_vaultReturnsZeroShares_reverts() public {
         uint256 amountIn = 1 ether;
         _mintAndApprove(wstETH, swapperProxy, amountIn);
@@ -522,7 +491,6 @@ contract FxSaveWstEthSwapperTest is BaoTest, TokenHolderTestBase, SwapExecutorTe
         vm.clearMockedCalls();
     }
 
-    /// @notice Re-entrant call from the fxSAVE/scrvUSD pool is blocked by nonReentrant (forward).
     function test_swap_fxSaveToWstEth_reentrancyGuard() public {
         uint256 amountIn = 1 ether;
         _mintAndApprove(fxSAVE, swapperProxy, amountIn * 2);
@@ -539,20 +507,14 @@ contract FxSaveWstEthSwapperTest is BaoTest, TokenHolderTestBase, SwapExecutorTe
         ISwapExecutor(swapperProxy).swap(fxSAVE, wstETH, amountIn, 0);
     }
 
-    /// @notice Re-entrant call from the Tricrypto pool is blocked by nonReentrant (reverse).
     function test_swap_wstEthToFxSave_reentrancyGuard() public {
         uint256 amountIn = 1 ether;
         _mintAndApprove(wstETH, swapperProxy, amountIn * 2);
 
         bytes memory reentrantCall = abi.encodeCall(ISwapExecutor.swap, (wstETH, fxSAVE, amountIn, 0));
-        MockCurveCryptoPool(payable(poolTricryptoLlama)).setReentrantCall(swapperProxy, reentrantCall);
+        MockUniV3Router(uniRouter).setReentrantCall(swapperProxy, reentrantCall);
 
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                CurveExchangeLib.PoolCallFailed.selector,
-                abi.encodeWithSelector(ReentrancyGuardTransient.ReentrancyGuardReentrantCall.selector)
-            )
-        );
+        vm.expectRevert(abi.encodeWithSelector(ReentrancyGuardTransient.ReentrancyGuardReentrantCall.selector));
         ISwapExecutor(swapperProxy).swap(wstETH, fxSAVE, amountIn, 0);
     }
 }

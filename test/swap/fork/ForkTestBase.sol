@@ -12,7 +12,7 @@ import {BaoTest} from "@bao-test/BaoTest.sol";
 ///
 ///      Requires `MAINNET_RPC_URL` (wired to the `mainnet` endpoint in foundry.toml).
 abstract contract ForkTestBase is BaoTest {
-    uint256 internal constant MAINNET_FORK_BLOCK = 25_500_000;
+    uint256 internal constant MAINNET_FORK_BLOCK = 26_071_000;
 
     function _forkMainnet() internal {
         vm.createSelectFork(vm.rpcUrl("mainnet"), MAINNET_FORK_BLOCK);
