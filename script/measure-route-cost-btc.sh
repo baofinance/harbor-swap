@@ -65,6 +65,10 @@ WBTC=$(sol_const "${CFG_WBTC}" WBTC)
 LBTC=$(sol_const "${CFG_LBTC}" LBTC)
 WSTETH=$(sol_const "${CFG_WST_WBTC}" WSTETH)
 WETH=$(sol_const "${CFG_WST_WBTC}" WETH)
+I_FXSAVE=$(sol_const "${CFG_WBTC}" POOL2_I_FXSAVE)
+J_SCRVUSD=$(sol_const "${CFG_WBTC}" POOL2_J_SCRVUSD)
+I_USDC=$(sol_const "${CFG_WBTC}" POOL_USD_I_USDC)
+J_CRVUSD=$(sol_const "${CFG_WBTC}" POOL_USD_J_CRVUSD)
 FEE_UW=$(sol_const "${CFG_WBTC}" UNI_USDC_WBTC_FEE)
 FEE_WRAP=$(sol_const "${CFG_LBTC}" UNI_WBTC_LBTC_FEE)
 FEE_WW=$(sol_const "${CFG_WST_WBTC}" UNI_WSTETH_WETH_FEE)
@@ -79,11 +83,11 @@ call() { cast call "$@" --block "${BLOCK}" --rpc-url "${RPC}" 2>/dev/null | awk 
 
 fx_to_wbtc() {
   local shares crv usdc out
-  shares=$(call "${POOL_FX}" "get_dy(int128,int128,uint256)(uint256)" 0 1 "$1")
+  shares=$(call "${POOL_FX}" "get_dy(int128,int128,uint256)(uint256)" "${I_FXSAVE}" "${J_SCRVUSD}" "$1")
   [[ -z ${shares} ]] && { echo 0; return; }
   crv=$(call "${VAULT}" "previewRedeem(uint256)(uint256)" "${shares}")
   [[ -z ${crv} ]] && { echo 0; return; }
-  usdc=$(call "${POOL_USD}" "get_dy(int128,int128,uint256)(uint256)" 1 0 "${crv}")
+  usdc=$(call "${POOL_USD}" "get_dy(int128,int128,uint256)(uint256)" "${J_CRVUSD}" "${I_USDC}" "${crv}")
   [[ -z ${usdc} ]] && { echo 0; return; }
   out=$(call "${QUOTER_V1}" "quoteExactInputSingle(address,address,uint24,uint256,uint160)(uint256)" \
     "${USDC}" "${WBTC}" "${FEE_UW}" "${usdc}" 0)

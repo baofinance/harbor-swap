@@ -131,8 +131,8 @@ BaoFactory proxy → v1 upgrade. Swap unit tests under `test/swap/` call the sam
 fork tests under `test/swap/fork/` (require `MAINNET_RPC_URL`):
 
 ```bash
-yarn test --match-path "test/swap/**"                # unit + fork; FAILS without MAINNET_RPC_URL
-yarn test --match-path "test/swap/executors/**"      # unit only
+yarn test --match-path "test/swap/**"                                          # unit + fork; FAILS without MAINNET_RPC_URL
+yarn test --match-path "test/swap/**" --no-match-path "test/swap/fork/**"      # unit only (Swapper + aggregators + executors)
 ```
 
 The fork tests do not skip when `MAINNET_RPC_URL` is unset — `ForkTestBase._forkMainnet` calls
@@ -142,7 +142,10 @@ reports green while proving nothing. Set the variable (see `.env.example`) or ma
 excludes `test/swap/fork/`.
 
 Full ETH-stack HarborYield integration (registry + oracles + `HarborYield_v1`) lives in the
-Harbor Yield consumer repo.
+Harbor Yield consumer repo. That repo must adopt the current `ISwapExecutor` /
+`IAggregatorSwapper` floor (`minAmountOut` = whole-order `toToken` amount, not a per-1e18
+rate) and `ISwapper.RouteInfo` (`amountOut` / `quoted` / `routeCostRatio`, with `amountIn`
+passed into route queries) — see § Consumer wiring below.
 
 ---
 
@@ -333,6 +336,12 @@ Until Layer 1 is set, `getRoutesFrom` / `getRoute` return the executor but
 `UniV3Swapper.swap` reverts with `NoPathConfigured`.
 
 ### Consumer wiring pattern
+
+**Harbor Yield checklist (consumer repo, not harbor-swap):** when bumping `@harbor-swap`,
+confirm HY calls `ISwapExecutor.swap` / `IAggregatorSwapper.swap` with a whole-order
+`minAmountOut` in `toToken` units, and that route queries use `RouteInfo.amountOut` /
+`quoted` / `routeCostRatio` with `amountIn` supplied. Do not keep a legacy per-1e18 rate
+floor against this interface.
 
 The Harbor Yield consumer repo overrides a virtual `_configureSwapRoutes` hook. Typical
 structure:

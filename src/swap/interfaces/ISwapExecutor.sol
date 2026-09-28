@@ -5,6 +5,14 @@ pragma solidity >=0.8.28 <0.9.0;
 /// @notice Interface implemented by the venue-specific swap executor contracts in harbor-swap
 ///         (UniV3Swapper_v1, CurveSwapper_v1, …). HarborYield calls one directly, at the address
 ///         ISwapper.getRoutesFrom returned for the route.
+/// @dev Consumer (Harbor Yield) responsibility — not implemented in this repo:
+///      - Pass a WHOLE-ORDER `minAmountOut` in `toToken` units (and the same semantics on
+///        `IAggregatorSwapper.swap`). Do not send a legacy per-1e18 input *rate*.
+///      - Read `ISwapper.RouteInfo` as `{amountOut, quoted, routeCostRatio}`; pass `amountIn`
+///        into `getRoute` / `getRoutesFrom`. Today `quoted` is always false — use
+///        `routeCostRatio` at execute (see `ISwapper`).
+///      Wire and test that migration in the Harbor Yield consumer repo; see
+///      `script/DEPLOY_SWAP.md` § Consumer wiring.
 interface ISwapExecutor {
     /// @notice Execute a token swap. Pulls fromToken from msg.sender and delivers toToken to msg.sender.
     ///         Unspent input is refunded, so `amountIn` is a limit rather than a promise.
