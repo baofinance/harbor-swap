@@ -33,12 +33,14 @@ src/swap/
     WstEthWbtcSwapper_v1.sol        UniV3 multi-hop wstETH → WBTC; reverse via Velora
     WstEthLbtcSwapper_v1.sol        UniV3 multi-hop wstETH → LBTC; reverse via Velora
   config/
-    ConfigFxSaveWstEthRoute_ETH_mainnet.sol  Mainnet route constants for FxSaveWstEthSwapper
+    ConfigFxSaveWstEthRoute_ETH_mainnet.sol  Mainnet route constants (flat until moved)
     ConfigFxSaveWbtcRoute_ETH_mainnet.sol
     ConfigFxSaveLbtcRoute_ETH_mainnet.sol
     ConfigFxSaveEurcRoute_ETH_mainnet.sol
     ConfigWstEthWbtcRoute_ETH_mainnet.sol
     ConfigWstEthLbtcRoute_ETH_mainnet.sol
+    base/                                Base chain route configs (L2; empty until wired)
+    robinhood/                           Robinhood chain route configs (empty until wired)
   aggregator/
     IAggregatorSwapper.sol          swap(from, to, in, minOut, bytes) interface
     VeloraSwapper_v1.sol           Fixed-router (Velora Augustus v6.2) adapter on SwapExecutorBase

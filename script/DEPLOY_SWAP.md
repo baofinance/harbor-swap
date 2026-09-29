@@ -709,4 +709,4 @@ proxy in isolation in tests), ensure `minAmountOut` respects HY's oracle floor.
 | [`script/measure-route-cost-eur.sh`](measure-route-cost-eur.sh) | Live hyEUR routeCostRatio |
 | [`script/measure-route-cost-usd.sh`](measure-route-cost-usd.sh) | USD stub (until a dedicated route exists) |
 | [`src/swap/README.md`](../src/swap/README.md) | Architecture + threat model |
-| [`src/swap/config/`](../src/swap/config/) | Per-route mainnet venue constants |
+| [`src/swap/config/`](../src/swap/config/) | Per-route venue constants (`*_ETH_mainnet.sol`; L2 dirs `base/`, `robinhood/`) |
